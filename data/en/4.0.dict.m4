@@ -19,12 +19,14 @@ changecom(`%')
  %                                                                           %
  %***************************************************************************%
 
-#define dictionary-version-number 5.10.2;
+#define dictionary-version-number 5.12.4;
 #define dictionary-locale         en_US.UTF-8;
 
 % The default largest disjunct cost to consider during parsing.
-#define max-disjunct-cost         2.7;
-#define panic-max-disjunct-cost   4.0;
+% Setting this to 5 or larger effectively disables the use of cost
+% cutoffs, as nothing in this dict can go this high.
+#define max-disjunct-cost         10.0;
+#define panic-max-disjunct-cost   10.0;
 
  % _ORGANIZATION OF THE DICTIONARY_
  %
@@ -53,13 +55,17 @@ changecom(`%')
  % make them adjective-like. Strictly speaking, these should probably
  % copied into words.adj.1 and treated like common adjectives, right?
  %
- % Many nouns in words.n.4 are treated as "mass or count". The side
+ % Many nouns in words.n.3 are treated as "mass or count". The side
  % effect is that mass nouns are inconsistently treated as sometimes
  % singular, sometimes plural. e.g. words.n.3 gets <noun-rel-s> &
  % <noun-main-m>. This is a kind-of ugly tangle, it should really
  % be sorted out so that links are properly marked as s, p or m.
  % This is mostly fixed, except that some uses of <noun-main-m>
  % remain, below.
+
+% empty-connector is used for hard-coded handling of unpaired
+% quote marks in the C code.
+#define empty-connector ZZZ;
 
 % Capitalization handling (null effect for now- behave as empty words).
 <1stCAP>: ZZZ-;
@@ -471,7 +477,7 @@ Hallowe'en:
     ({Dm-} & Wa-)
     or (Jd- & Dmu- & Wa- & {Mp+});
 
-% words.n.4: nouns that can be mass or countable
+% Nouns that can be mass or countable
 % allocation.n allotment.n alloy.n allure.n alteration.n alternation.n
 % piano.n flute.n belong here, because of "He plays piano"
 %
@@ -491,7 +497,7 @@ Hallowe'en:
 
 <GREEK-LETTER-AND-NUMBER> pH.i x.n: <noun-mass-count>;
 
-% Same as pattern used in words.n.4 -- mass nouns or countable nouns
+% Same as above -- mass nouns or countable nouns
 <generic-singular-id>: <noun-mass-count>;
 
 % Pattern used for words.n.2.s
@@ -1008,7 +1014,11 @@ v/v vol/vol volume/volume w/v weight/vol weight/volume:
 <Dsv>: Ds**v- or Ds**x-;
 <Dsc>: Ds**c- or Ds**x-;
 
-% Vowel-only form of the below
+% Nouns that can be used with that-clauses; most prominently, with
+% THb links: "The problem was that ...". Post-processing allows THb's
+% but blocks plain TH's.
+% These are singular; the plural mass-count versions are further below.
+% Vowel-only form of the expressions further below.
 argument.n impression.n allegation.n announcement.n assertion.n
 accusation.n idea.n assumption.n implication.n
 indication.n inkling.n amount.n answer.n:
@@ -1020,23 +1030,18 @@ indication.n inkling.n amount.n answer.n:
       SIs*t- or
       <rel-clause-s>))
     or ({<Dsv>} & <noun-and-s>)
-    or dSJrs-
     or (YS+ & <Dsv>)
     or ({NM+} & {Ss+} & Wd-)
     or (GN+ & (DD- or [()]))
-    or Us-);
+    or Us-
+    or <noun-assert>);
 
 attestation.n:
   (<noun-modifiers> & (({D*u-} & {@M+} & {(TH+ or (R+ & Bs+)) & {[[@M+]]}} & {@MXs+} & (<noun-main2-m> or (Ss*t+ & <CLAUSE>) or SIs*t- or Bsm+)) or Us- or (YS+ & {D*u-}) or (GN+ & (DD- or [()])))) or AN+;
 
-% consonant-only form of the above.
-report.n sign.n conclusion.n complaint.n position.n restriction.n
-notion.n remark.n proclamation.n reassurance.n saying.n possibility.n
-problem.n claim.n result.n statement.n hunch.n concept.n hypothesis.n
-message.n premonition.n prerequisite.n prereq.n pre-req.n pre-requisite.n
-corequisite.n co-requisite.n coreq.n co-req.n truism.n fallacy.n
-proposition.n prospect.n presupposition.n supposition.n finding.n
-crux.n shame.n thing.n bet.n guess.n:
+% Consonant-only form of the above.
+% SIs-: "How fast is the program"
+/en/words/words.n.4-const:
   <noun-modifiers> & (
     AN+
     or (<Dsc> & {@M+} & {(TH+ or (R+ & Bs+)) & {[[@M+]]}} & {@MXs+} &
@@ -1044,8 +1049,9 @@ crux.n shame.n thing.n bet.n guess.n:
       (Ss*t+ & <CLAUSE>) or
       SIs*t- or
       <rel-clause-s>))
+    or (<Dsc> & SIs- & <noun-rel-s>)
     or ({<Dsc>} & <noun-and-s>)
-    or dSJrs-
+    or ({<Dsc>} & Wa-)
     or (YS+ & <Dsc>)
     or ({NM+} & {Ss+} & Wd-)
     or (GN+ & (DD- or [()]))
@@ -1054,49 +1060,52 @@ crux.n shame.n thing.n bet.n guess.n:
 % Vowel form of the below
 acknowledgment.n acknowledgement.n understanding.n assurance.n
 awareness.n opinion.n explanation.n expectation.n insistence.n:
-  (<noun-modifiers> & (
-    ({(D*u*v- or D*u*x-)} & {@M+} & {(TH+ or (R+ & Bs+)) & {[[@M+]]}} & {@MXs+} & (
+  <noun-modifiers> & (
+    AN+
+    or ({(D*u*v- or D*u*x-)} & {@M+} & {(TH+ or (R+ & Bs+)) & {[[@M+]]}} & {@MXs+} & (
       <noun-main2-m>
       or (Ss*t+ & <CLAUSE>)
       or SIs*t-
       or <rel-clause-s>))
     or ({(D*u*v- or D*u*x-)} & <noun-and-u>)
-    or Us-
     or (YS+ & {D*u-})
-    or (GN+ & (DD- or [()]))))
-  or AN+;
+    or (GN+ & (DD- or [()]))
+    or Us-
+    or <noun-assert>);
 
-% Consonant for of the above.
+% Consonant form of the above.
 proof.n doubt.n suspicion.n hope.n knowledge.n relief.n disclosure.n
 fear.n principle.n concern.n philosophy.n risk.n threat.n conviction.n
 theory.n speculation.n news.n belief.n contention.n thought.n myth.n
 discovery.n rumor.n probability.n fact.n feeling.n comment.n process.n
 perception.n sense.n realization.n view.n consensus.n notification.n
 rule.n danger.n warning.n suggestion.n:
-  (<noun-modifiers> & (
-    ({(D*u*c- or D*u*x-)} & {@M+} & {(TH+ or (R+ & Bs+)) & {[[@M+]]}} & {@MXs+} & (
+  <noun-modifiers> & (
+    AN+
+    or ({(D*u*c- or D*u*x-)} & {@M+} & {(TH+ or (R+ & Bs+)) & {[[@M+]]}} & {@MXs+} & (
       <noun-main2-m>
       or (Ss*t+ & <CLAUSE>)
       or SIs*t-
       or <rel-clause-s>))
     or ({(D*u*c- or D*u*x-)} & <noun-and-u>)
-    or Us-
     or (YS+ & {D*u-})
-    or (GN+ & (DD- or [()]))))
-  or AN+;
+    or (GN+ & (DD- or [()]))
+    or Us-
+    or <noun-assert>);
 
 evidence.n reasoning.n likelihood:
-  (<noun-modifiers> &
-    (({Dmu-} & {@M+} & {(TH+ or (R+ & Bs+)) & {[[@M+]]}} & {@MXs+} &
+  <noun-modifiers> & (
+    AN+
+    or ({Dmu-} & {@M+} & {(TH+ or (R+ & Bs+)) & {[[@M+]]}} & {@MXs+} &
       (<noun-main2-m> or
       (Ss*t+ & <CLAUSE>) or
       SIs*t- or
-      <rel-clause-s>)) or
-    ({Dmu-} & <noun-and-u>) or
-    Up- or
-    (YS+ & {Dmu-}) or
-    (GN+ & (DD- or [()])))) or
-  AN+;
+      <rel-clause-s>))
+    or ({Dmu-} & <noun-and-u>)
+    or (YS+ & {Dmu-})
+    or (GN+ & (DD- or [()]))
+    or Up-
+    or <noun-assert>);
 
 ideas.n opinions.n statements.n beliefs.n facts.n arguments.n
 principles.n theories.n philosophies.n signs.n impressions.n
@@ -1116,61 +1125,65 @@ provisos.n truisms.n fallacies.n assurances.n speculations.n
 propositions.n prospects.n presuppositions.n inklings.n suppositions.n
 findings.n amounts.n rules.n dangers.n warnings.n indications.n
 answers.n suggestions.n:
-  (<noun-modifiers> &
-    (({{Jd-} & Dmc-} & {@M+} & {(TH+ or (R+ & Bp+)) & {[[@M+]]}} & {@MXp+} &
+  <noun-modifiers> & (
+    [[AN+]]
+    or ({{Jd-} & Dmc-} & {@M+} & {(TH+ or (R+ & Bp+)) & {[[@M+]]}} & {@MXp+} &
       (<noun-main2-p> or
       (Sp*t+ & <CLAUSE>) or
       SIp*t- or
-      <rel-clause-p>)) or
-    ({Dmc-} & <noun-and-p>) or
-    Up- or
-    (YP+ & {Dmc-}) or
-    (GN+ & (DD- or [()])))) or
-  [[AN+]];
+      <rel-clause-p>))
+    or ({Dmc-} & <noun-and-p>)
+    or (YP+ & {Dmc-})
+    or (GN+ & (DD- or [()]))
+    or Up-
+    or <noun-assert>);
 
 request.n requirement.n condition.n recommendation.n provision.n stipulation.n:
-  (<noun-modifiers> &
-    (({D*u-} & {@M+} & {(TH+ or TS+ or (R+ & Bs+)) & {[[@M+]]}} & {@MXs+} &
+  <noun-modifiers> & (
+    AN+
+    or ({D*u-} & {@M+} & {(TH+ or TS+ or (R+ & Bs+)) & {[[@M+]]}} & {@MXs+} &
       (<noun-main2-m> or
       (Ss*t+ & <CLAUSE>) or
       SIs*t- or
-      <rel-clause-s>)) or
-    ({D*u-} & <noun-and-u>) or
-    Us- or
-    (YS+ & {D*u-}) or
-    (GN+ & (DD- or [()])))) or
-  AN+;
+      <rel-clause-s>))
+    or ({D*u-} & <noun-and-u>)
+    or (YS+ & {D*u-})
+    or (GN+ & (DD- or [()]))
+    or Us-
+    or <noun-assert>);
 
 % {Jd-} : "a number of conditions"
 requests.n requirements.n conditions.n recommendations.n provisions.n
 stipulations.n:
-  (<noun-modifiers> &
-    (({{Jd-} & Dmc-} & {@M+} & {(TH+ or TS+ or (R+ & Bp+)) & {[[@M+]]}} & {@MXp+} &
+  <noun-modifiers> & (
+    [[AN+]]
+    or ({{Jd-} & Dmc-} & {@M+} & {(TH+ or TS+ or (R+ & Bp+)) & {[[@M+]]}} & {@MXp+} &
       (<noun-main2-p> or
       (Sp*t+ & <CLAUSE>) or
       SIp*t- or
-      <rel-clause-p>)) or
-    ({Dmc-} & <noun-and-p>) or
-    Up- or
-    (YP+ & {Dmc-}) or
-    (GN+ & (DD- or [()])))) or
-  [[AN+]];
+      <rel-clause-p>))
+    or ({Dmc-} & <noun-and-p>)
+    or Up-
+    or (YP+ & {Dmc-})
+    or (GN+ & (DD- or [()]))
+    or <noun-assert>);
 
 % (NM+ & Ss+ & Wd-): "Proposal 2: Hire a plumber"
 excuse.n decision.n proposal.n attempt.n plan.n plot.n pledge.n urge.n
 mission.n right.n desire.n mandate.n promise.n option.n campaign.n
 offer.n vow.n permit.n impetus.n proclivity.n propensity.n move.n
 vote.n bill.n:
-  (<noun-modifiers> &
-    ((Ds- & {@M+} & {(<ton-verb> or (R+ & Bs+)) & {[[@M+]]}} & {@MXs+} &
+  <noun-modifiers> & (
+    AN+
+    or (Ds- & {@M+} & {(<ton-verb> or (R+ & Bs+)) & {[[@M+]]}} & {@MXs+} &
       (<noun-main-s> or
-      <rel-clause-s>)) or
-    ({Ds-} & <noun-and-s>) or
-    Us- or
-    (YS+ & Ds-) or
-    (GN+ & (DD- or [()])) or
-    ({NM+} & Ss+ & Wd-))) or
-  AN+;
+      <rel-clause-s>))
+    or ({Ds-} & <noun-and-s>)
+    or (YS+ & Ds-)
+    or (GN+ & (DD- or [()]))
+    or ({NM+} & Ss+ & Wd-)
+    or Us-
+    or <noun-assert>);
 
 propension.n:
   (<noun-modifiers> & ((Ds- & {@M+} & {(<ton-verb> or (R+ & Bs+)) & {[[@M+]]}} & {@MXs+} & (<noun-main-s> or Bsm+)) or Us- or (YS+ & Ds-) or (GN+ & (DD- or [()])))) or AN+;
@@ -1189,8 +1202,7 @@ propension.n:
     or ({D*u-} & <noun-and-u>)
     or (YS+ & {D*u-})
     or (GN+ & (DD- or [()]))
-    or Us-
-    );
+    or Us-);
 
 failure.n haste.n refusal.n reluctance.n pressure.n willingness.n
 responsibility.n intent.n temptation.n readiness.n effort.n
@@ -3097,7 +3109,7 @@ rest.w: Ix- & Pv+;
   ({@EBm+} & ((
       ([{CV-} & B**t-]
       or (B**t- & <verb-wall>)
-      or [K+]
+      or [<verb-wall> & K+]
       or (<verb-wall> & BI+)
       or (<verb-wall> & OF+)
       or (Osi+ & R+ & Bs+ & <verb-wall>)
@@ -5123,18 +5135,21 @@ figuring.v: <verb-pg> & <vc-figure>;
 %    "you indicate this why?"
 % O+ & I*j+: "I would have said so, were he there"
 %            Could also have solved this with <vc-trans> & {I*j+}
+% [()]: "Go question! Go analyze! Go discover!"
 <vc-predict>:
   (<vc-trans> & {{Xc+} & QN+})
   or (O+ & <mv-coord> & I*j+)
   or ({@MV+} & (<embed-verb> or TH+ or RSe+ or Zs- or VC+))
-  or ({@MV+} & (<QI+pref> & {MV+}));
+  or ({@MV+} & (<QI+pref> & {MV+}))
+  or [[()]];
 
 % See also: words.v.10 for paraphrasing verbs
 % I- & B- & <embed-verb>: "What did John say you should do?"
-predict.v realize.v discover.v determine.v announce.v say.v mention.v admit.v
-recall.v reveal.v divulge.v state.v observe.v indicate.v stammer.v bawl.v
-analyse.v analyze.v assess.v establish.v evaluate.v examine.v question.v test.v
-hypothesize.v hypothesise.v document.v envisage.v:
+predict.v realize.v discover.v determine.v announce.v say.v mention.v
+admit.v recall.v reveal.v divulge.v state.v observe.v indicate.v
+stammer.v bawl.v analyse.v analyze.v assess.v establish.v evaluate.v
+examine.v question.v test.v hypothesize.v hypothesise.v document.v
+envisage.v:
   VERB_PLI(<vc-predict>)
   or (I- & <b-minus> & <embed-verb>);
 
@@ -5548,7 +5563,9 @@ finding.g: (<vc-find> & <verb-ge>) or <verb-ge-d>;
 
 get.v: VERB_PLI(<vc-get>);
 gets.v: VERB_S_T(<vc-get>);
-got.v-d: VERB_SPPP_T(<vc-get>);
+
+% <verb-x-sp> & Pv+:  "got handled recently"
+got.v-d: VERB_SPPP_T(<vc-get>) or (<verb-x-sp> & Pv+);
 
 % basilect
 % "I gotta go now"
@@ -6616,9 +6633,11 @@ appreciating.v spending.v: <verb-pg> & <vc-appreciate>;
 
 make.v: VERB_PLI(<vc-make>);
 makes.v: VERB_S_T(<vc-make>);
+
+% THb+: "An allegation was made that he did it."
 made.v-d:
   VERB_SPPP_T(<vc-make>)
-  or (<verb-s-pv-b> & ((<mv-coord> & Pa+) or ({O+ or K+} & <mv-coord>)))
+  or (<verb-s-pv-b> & (THb+ or (<mv-coord> & Pa+) or ({O+ or K+} & <mv-coord>)))
   or ({({@MV+} & Pa+) or K+} & <verb-phrase-opener>);
 
 built_of built_up_of composed_of constructed_of formed_of made_of
@@ -7458,7 +7477,7 @@ unlike:
 % Mf- & MVp+: "She was a girl of about John's age"
 of:
   ({JQ+}
-    & (Js+ or Jp+ or Ju+ or Mgp+ or (QI+ & {CV+}))
+    & (Js+ or Jp+ or Ju+ or Jr+ or Mgp+ or (QI+ & {CV+}))
     & (Mp-
       or Mf-
       or OFj-
@@ -7635,7 +7654,7 @@ later earlier:
     (Wt- & {Xc+}) or
     [({Xc+ & {Xd-}} & dCO+)] or
     (Xd- & Xc+ & (MX*x- or MVx-)) or
-    ({[[@Ec-]]} & {Xc+} & A+) or
+    ({[[@Ec-]]} & {{Xdp-} & Xc+} & A+) or
     dAJrc- or dAJlc+)) or
   (Yt- & (<advcl-verb> or Qe+));
 
@@ -9019,7 +9038,7 @@ just_not: <COMP-OPENER>;
 % Macro, for all the common parts of an A+ connection, with
 % the phonetic attachment as a variable.
 define(`ADJ_PH',`'
-  ({EA- or ({($1)} & {EF+ or MX*ta+})} & {[[@Ec-]]} & {Xc+} & A+))
+  ({EA- or ({($1)} & {EF+ or MX*ta+})} & {[[@Ec-]]} & {{Xdp-} & Xc+} & A+))
 
 % PH-: connect, phonetically, to a/an if it is there.
 <adj-consn>: ADJ_PH(<wantPHc>);
@@ -9062,7 +9081,7 @@ frank.a:
 % [A-]0.2: "a big green apple" want "big" to modify "apple", not "green"
 <color-adj>:
   ({EA- or EF+} & {(AN- or [A-]0.2) & {Ds-}} &
-    (({[[@Ec-]]} & {Xc+} & A+)
+    (({[[@Ec-]]} & {{Xdp-} & Xc+} & A+)
     or ((Pa- or AF+ or Ma- or dMJra-) & {@MV+} & {<tot-verb>})
     or ({@MV+} & dMJla+)
     or AA+
@@ -9210,7 +9229,7 @@ unusual.a useful.a impossible.a annoying.a unfair.a unuseful.a:
 
 a_bitch :
   <adj-good>
-  or ({EA- or EF+} & {[[@Ec-]]} & {Xc+} & A+);
+  or ({EA- or EF+} & {[[@Ec-]]} & {{Xdp-} & Xc+} & A+);
 
 % Surely this is incomplete...
 one_and_only in_situ:
@@ -9940,7 +9959,7 @@ next.a:
   or ({Xc+} & {[[@Ec-]]} & L-)
   or (DD- & <noun-rel-x> & {<ton-verb>} & <noun-main-x>);
 
-past.a previous.a: ({[[@Ec-]]} & {Xc+} & A+) or L- or (Pa- & {@MV+});
+past.a previous.a: ({[[@Ec-]]} & {{Xdp-} & Xc+} & A+) or L- or (Pa- & {@MV+});
 
 following.a remaining.a top.i: L-;
 
@@ -10815,7 +10834,13 @@ so_on the_like vice_versa v.v.:
 % XXX that is, change <WALL> to just WV+.
 %
 <sent-start>:
-  (<wo-wall> or <wi-wall>) & {hCPx+ or hCPi+ or hCPu+} & {([Xx+]0.06 or Xp+ or Xs+) & {hWV+}} & {RW+ or Xp+};
+  (<wo-wall> or <wi-wall>)
+    & {hCPx+ or hCPi+ or hCPu+}
+    & {([Xx+]0.06 or Xo- or Xp+ or Xs+) & {hWV+}}
+    & {RW+ or Xp+};
+
+% Espagnol sentence starters
+¿ ¡: Xo- & <sent-start>;
 
 % <sent-start>: "So, don't do it!"
 %    The cost on sent-start is to force preference for CV over WV,
@@ -10832,6 +10857,7 @@ so.ij:
 % hWl+ is here, not elsewhere, to avoid use together with Xx+
 LEFT-WALL:
   <sent-start>
+  or Xo+
   or (QUd+ & <sent-start> & (Xc+ or [()]) & QUc+)
   or (hWl+ & {Xj+} & (RW+ or Xp+))
   or (QUd+ & hWl+ & {Xj+} & (Xc+ or [()]) & QUc+)
@@ -10856,9 +10882,9 @@ RIGHT-WALL: RW- or ({@Xca-} & [[Xc-]]);
 <post-quote>:
   QUc- & {<wo-wall> or <wi-wall> or CP+};
 
-« 《 【 『 „ “:
+« 《 【 『 「 „ “ ‘ ''.x ’’.x :
   QUd-;
-» 》 】 』 ”:
+» 》 】 』 」 ” ''.y ’’.y :
   <post-quote>;
 
 % For now, using ".x and ".y in the above definitions multiplies the number
@@ -10866,13 +10892,14 @@ RIGHT-WALL: RW- or ({@Xca-} & [[Xc-]]);
 
 % [[ZZZ-]]: link to "random" quotation marks that show up "for no reason".
 % Cannot use a blanket W+ here to pick up all W connectors, because ... ??
-""": QUd- or <post-quote> or [[ZZZ-]];
+% Underbar used like a quote-mark, e.g. for _bold text_
+""" "_": QUd- or <post-quote> or [[ZZZ-]];
 
 % Using backtic.x and backtic.y in the above definitions multiplies the
 % number of linkages by 2^(number of backtics). So it is treated as a
 % single item, below.
 changequote(\,/)dnl
-`: QUd- or <post-quote>;
+` ``: QUd- or <post-quote>;
 changequote dnl
 
 % Cost on Xc- because Xc is intended for commas, not periods.
@@ -10884,8 +10911,8 @@ changequote dnl
   or Xi-
   or <sent-split>;
 
-% Optional RW: "Is this a test?" she asked.
-"!" "?" ‽ ؟ ？！:
+% Question marks: Optional RW: "Is this a test?" she asked.
+"!" "?" ‽ ؟ ？ ！ :
    (Xp- & RW+)
    or ({@Xca-} & Xc- & {[RW+]})
    or ({@Xca-} & Xq+)
@@ -10916,7 +10943,7 @@ changequote dnl
 % XXX the correct solution to this is to add a new domain rule ! XXX
 
 ",":
-  ({[@Xca-]-0.05 or [[[@Xc-]]]} & (({[EBx+]} & Xd+) or Xc-))
+  ({[@Xca-]-0.05} & (({[EBx+]} & Xd+) or Xc-))
   or [<semicol>];
 
 % ,.j
@@ -11003,8 +11030,9 @@ but.ij and.ij or.ij not.ij also.ij then.ij but_not and_not and_yet:
 
 % 、 is the "enumeration-comma" used like a dash ...
 % ‧ is the "middle dot"
-% The four dashes are e28092 e28093 e28094 e28095
-‒ – — ― ━ ー --.r -.r 、 ～.r ~.r ‧.r :
+% The first two short dashes are e28090 e28091
+% The next four long dashes are e28092 e28093 e28094 e28095
+‐ ‑ ‒ – — ― ━ ー --.r -.r 、 ～.r ~.r ‧.r :
   [[<colon>]]
   or ({@Xca-} & (({EBx+} & Xd+) or Xc-))
   or (Wd- & W+)
@@ -11012,9 +11040,11 @@ but.ij and.ij or.ij not.ij also.ij then.ij but_not and_not and_yet:
 
 % ellipsis ... at the end, trailing off ...
 % D- & O+: "He is such a ..."
+% J-: "She was thinking of ..."
 ....y ….y:
   (hCO- & Wd-)
   or ({D-} & O-)
+  or J-
   or Xx-;
 
 % ellipsis ... at the start
@@ -11023,8 +11053,12 @@ but.ij and.ij or.ij not.ij also.ij then.ij but_not and_not and_yet:
 % S+ has a cost so that the infinitive I+ is preferred.
 % BI+, QI+: "... how those two should work together"
 % TH+: "... that it rained."
+% LI+: "... like it would rain"
 ....x ….x:
-  We- & (J+ or [S+] or I+ or M+ or MV+ or BI+ or TH+ or QI+ or (R+ & B+ & {S+}));
+  We- & (
+    J+ or [S+] or I+ or M+ or MV+ or BI+
+    or LI+ or TH+ or QI+ or (R+ & B+ & {S+})
+  );
 
 % Ellipsis as verb: "Lud, son of Shem, ..."
 % Qp-: "In what way...?
@@ -11046,6 +11080,11 @@ but.ij and.ij or.ij not.ij also.ij then.ij but_not and_not and_yet:
   ({D+} & dSJl+) or
   ({D+} & dSJr-);
 
+% subordinate clause "It became clear that ... ..."
+% Note that two ellipses are needed for this to appear.
+....s ….s:
+  C- & S+;
+
 % The percent sign following a number (also basis pt, per mil)
 % Also -- see above, for handling of 12ft. 12in. not just 12%
 % AN- & Jp-: "... the concentration in v/v %"
@@ -11057,7 +11096,7 @@ but.ij and.ij or.ij not.ij also.ij then.ij but_not and_not and_yet:
 
 % See also /en/words/currency for currency names that follow a number.
 $ USD.c US$.c C$.c AUD.c AUD$.c HK.c HK$.c
-£ ₤ € ¤ ₳ ฿ ¢ ₵ ₡ ₢ ₠ ₫ ৳ ƒ ₣ ₲ ₴ ₭ ₺  ℳ  ₥ ₦ ₧ ₱ ₰ ₹ ₨ ₪ ₸ ₮ ₩ ¥ ៛ 호점
+£ ₤ € ¤ ₳ ฿ ¢ ₵ ₡ ₢ ₠ ₫ ৳ ƒ ₣ ₲ ₴ ₭ ₺  ℳ  ₥ ₦ ₧ ₱ ₰ ₹ ₨ ₪ ﷼  ₸ ₮ ₩ ¥ ៛ 호점
 † †† ‡ § ¶ © ® ℗ № "#":
   NM*x+ & (AN+ or NM*y- or [[G+]] or (NIfu+ or NItu-) or
     ({EN- or NIc- or [[A- & NSa-]]} & {@MX+} &
@@ -11065,10 +11104,7 @@ $ USD.c US$.c C$.c AUD.c AUD$.c HK.c HK$.c
         (<noun-main-p> or <noun-and-p> or [[(Ss+ & <CLAUSE>) or SIs-]])))));
 
 % service mark, trademark.
-% ℠ ™ :
-
-% Espagnol stuff
-% ¿ ¡:
+℠ ™ : G- ;
 
 "&": G- & {Xd- & G-} & G+;
 
@@ -11086,9 +11122,9 @@ $ USD.c US$.c C$.c AUD.c AUD$.c HK.c HK$.c
   YS- & (({AL-} & {@L+} & (D+ or DD+)) or [[<noun-main-x>]] or DP+);
 
 % Wd-: allows "(1 + 1) = 2"
-"(" "[": {Wd-} & {EBx+} & dXdp+;
+"(" "{" "[" "<" 〈 （ 〔 ［ : {Wd-} & {EBx+} & dXdp+;
 
-")" "]": {@Xca-} & dXcp-;
+")" "}" "]" ">" 〉 ） 〕 ］: {@Xca-} & dXcp-;
 
 % foo: F+;
 

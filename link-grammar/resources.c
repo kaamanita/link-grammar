@@ -45,12 +45,12 @@ int getrusage(int who, struct rusage *rusage);
 #define MAX_PARSE_TIME_UNLIMITED -1
 #define MAX_MEMORY_UNLIMITED ((size_t) -1)
 
-/** returns the current usage time clock in seconds */
+/** Returns the CPU usage time, for this thread only, in seconds. */
 static double current_usage_time(void)
 {
-#if !defined(_WIN32)
+#if defined RUSAGE_THREAD
 	struct rusage u;
-	getrusage (RUSAGE_SELF, &u);
+	getrusage (RUSAGE_THREAD, &u);
 	return (u.ru_utime.tv_sec + ((double) u.ru_utime.tv_usec) / 1000000.0);
 #else
 	return ((double) clock())/CLOCKS_PER_SEC;
@@ -145,7 +145,7 @@ bool resources_memory_exhausted(Resources r)
 	else return (r->memory_exhausted || (get_space_in_use() > r->max_memory));
 }
 
-#define RES_COL_WIDTH 40
+#define RES_COL_WIDTH 52
 
 /** print out the cpu ticks since this was last called */
 GNUC_PRINTF(2,0)

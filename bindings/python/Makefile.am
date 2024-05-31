@@ -17,7 +17,7 @@ built_py_sources = $(top_builddir)/bindings/python/clinkgrammar.py
 # Over-ride the install location, so as to remove the dash in the
 # directory "link-grammar".  Turns out python cannot tolerate dashes.
 # Thus, typically, it will install into
-# /usr/local/lib/python2.7/dist-packages/linkgrammar (without the dash)
+# /usr/local/lib/python3.x/dist-packages/linkgrammar (without the dash)
 pkgpythondir=$(pythondir)/linkgrammar
 pkgpyexecdir=$(pyexecdir)/linkgrammar
 
@@ -51,7 +51,7 @@ if HAVE_SWIG
 # Swig builds these ....
 $(built_c_sources) $(built_py_sources): $(SWIG_INCLUDES)
 $(built_c_sources) $(built_py_sources): $(SWIG_SOURCES)
-	$(AM_V_GEN) $(SWIG) -python -py3 -module clinkgrammar -I$(top_srcdir)/link-grammar -o $@ $<
+	$(AM_V_GEN) $(SWIG) -python -module clinkgrammar -I$(top_srcdir)/link-grammar -o $@ $<
 else
 $(built_c_sources) $(built_py_sources):
 	touch $(built_c_sources) $(built_py_sources)
@@ -83,6 +83,9 @@ AVOID_VERSION = -avoid-version
 if !OS_CYGWIN
 PYMODULE_EXT = -shrext .pyd
 endif
+endif
+if OS_NETBSD
+AVOID_VERSION = -avoid-version
 endif
 _clinkgrammar_la_LDFLAGS =                        \
     -version-info @VERSION_INFO@ $(AVOID_VERSION) \

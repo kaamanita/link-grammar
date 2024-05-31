@@ -1,9 +1,87 @@
-Version 5.10.3 (XXX 2021)
+Version 5.12.6 (XXX 2024)
+ * Nothing yet ...
+
+Version 5.12.5 (31 May 2024)
+ * Bugfix tracon table size management. #1486
+ * Bugfix connector hashing for fewer hash collisions. #1487, #1528
+ * Bugfix python unit test for Thai on Apple. #1530
+ * New autogen.sh #1531
+ * Stop litering .lg_history in current directory. #1443 #1534
+ * MS Windows build fixes #1537
+
+Version 5.12.4 (28 March 2024)
+ * Minor English dict fixes. #1470
+ * Use correct guard macro for glibc heap functions. #1471
+ * MacOS build fix #1473
+ * Silence javascript build errors. #1377
+ * Reduce memory use, improve performance, via Parse_set. #1480
+ * Optimize solutions with cycles. #1481
+
+Version 5.12.3 (24 March 2023)
+ * Assorted Atomese fixes.
+ * Fix SAT-solver build breaks.
+ * Add dictionary flag to disable built-in capitalization rules. #1468
+
+Version 5.12.2 (9 March 2023)
+ * Fix null-pointer deref in Atomese code.
+
+Version 5.12.1 (5 March 2023)
+ * Assorted enhancements and fixes for the AtomSpace dictionary. #1362
+ * Fix missing HAVE_THREADS_H, affects Apple Homebrew. #1363
+ * Fix regex thread-safety issue. #1370
+ * Print warning about aspell; it leaks memory. #1373, #1376, #1493
+ * Deduplicate linkages when overflow forces random selection. #1378 #1396
+ * Fix direct dialect settings on connectors. #1382
+ * Cleanup dictionary backends. #1391 thru #1395
+ * English dict: paraphrasing fixes. #1398
+ * Report CPU time usage only for the current thread. #1399
+ * Extensive performance optimizations for MST dictionaries. #1402
+ * Remove old broken max-cost computations. #1456
+
+Version 5.12.0 (26 Nov 2022)
+ * Fix crash when using the Atomese dictionary backend.
+ * Fix generation tokenization bug when dict has no unknown word token.
+ * Major Atomese dictionary extensions, including generation support.
+ * Minor tweaks to `any` uniform random parse tree language.
+ * Include U+202F NARROW NO-BREAK SPACE as a space character.
+ * Fix the various regexes so that they're thread-safe! #1354
+ * Maybe(?) fix FreeBSD missing -lstdthreads #1355
+
+Version 5.11.0 (27 Sept 2022)
+ * Prototype support for dictionary in the AtomSpace.
+ * English dict: assorted missing nouns, verbs. #1289
+ * Performance improvements. #1309
+ * Fix Windows build break in 5.10.4, 5.10.5 fixed in #1313
+ * Fix "amy" language #1312
+ * Fix multilib systems, e.g. elf32-i386 #1314
+ * Corrected grapheme support for random morpheme sampling. #1315
+ * Thai language dictionary updates #1322
+ * Punctuation fixes #1331
+ * Affixes can now be specified with regexes #1334
+ * The regex library PCRE2 is required by default.
+
+Version 5.10.5 (17 June 2022)
+ * Updated Docker files. #1288
+ * English dict: broader handling of ellipsis.
+ * Updated Thai dicts: #1292, #1294
+ * Fix Thai regex's to work even with basic C++ regex lib. #1297
+ * Performance improvements. #1298
+
+Version 5.10.4 (4 March 2022)
+ * English dict: fix relative clause, per mailing list.
+ * Remove assorted length restrictions on word-size. #1283
+ * Add missing files for building link-generator on Windows. #1285
+ * Strip the internally added "._I" from subscripted idioms. #1287
+ * New: Provisional Thai dictionary. #1279
+
+Version 5.10.3 (14 Feb 2022)
  * Remove `node.js/package-lock.json` from tarball distribution. #1251
  * Fix Windows MSVC build break. #1253
  * Fix memory leak in the "!" link-parser command. #1256
  * Add C++ regex support. It is now the default for MSVC builds. #1258
  * Fix spell-guess for run-on words. #1249
+ * Port link-generator to MS-Windows. #1269
+ * Fix apostrophe handling for link-generator w/sqlite3 dicts. #1276
 
 Version 5.10.2 (16 Sept 2021)
  * Fix python install path.
@@ -752,12 +830,12 @@ Version 4.7.0 (12 September 2010):
 Version 4.6.7 (16 April 2010)
  * Fix: configure handling of --enable-hunspell (bugtracker issue 46)
  * Fix: conjoined modifier phrases: "the black and white cat sleeps."
- * Fix: MSWindows+MingGW compilation issue.
+ * Fix: MSWindows+MinGW compilation issue.
  * Update msvc9 Microsoft Visual C 2008 project, from Boris Iordanov.
 
 Version 4.6.6 (19 March 2010)
  * Minor fixes to handling of units.
- * Fix: MSWindows+Cygwin/MingGW compilation issues.
+ * Fix: MSWindows+Cygwin/MinGW compilation issues.
  * Use pkgconfig for editline (from Vincent Untz)
  * Fix: "I want it back."
  * Additional titular prefixes, suffixes: Maj. Ph.D.
@@ -770,7 +848,7 @@ Version 4.6.5 (3 November 2009)
  * Fix: Take more care in distinguishing mass and count nouns.
  * Fix: Old bug w/relative clauses: Rw+ is optional, not mandatory.
  * Provide tags identifying relative, superlative adjectives.
- * Remove BioLG NUMBER-AND-UNIT handling, its been superseded.
+ * Remove BioLG NUMBER-AND-UNIT handling, it's been superseded.
  * Fix handling of parenthetical phrases/clauses.
  * Fix: handling of capitalized first words ending in letter "s".
  * Fix: support "filler-it" SF link for "It was reasoned that..."

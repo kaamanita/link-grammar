@@ -14,6 +14,8 @@
 #include "api-structures.h"
 #include "linkage.h"
 #include "post-process/post-process.h" // for linkage_free_pp_info
+#include "tokenize/wordgraph.h"        // for gwordlist_free
+#include "linkage/lisjuncts.h"         // for lg_free_disjunct_strings
 #include "utilities.h"
 
 void free_linkage(Linkage linkage)
@@ -22,13 +24,12 @@ void free_linkage(Linkage linkage)
 	exfree(linkage->chosen_disjuncts, linkage->num_words * sizeof(Disjunct *));
 	free(linkage->link_array);
 
-	free(linkage->disjunct_list_str);
+	lg_free_disjunct_strings(linkage);
 
 	linkage_free_pp_domains(linkage);
 
-	/* XXX FIXME */
-	free(linkage->wg_path);
-	free(linkage->wg_path_display);
+	gwordlist_free(linkage->wg_path);
+	gwordlist_free(linkage->wg_path_display);
 }
 
 void free_linkages(Sentence sent)
@@ -42,7 +43,7 @@ void free_linkages(Sentence sent)
 		free_linkage(&lkgs[in]);
 	}
 
-	free(lkgs);
+	linkage_array_free(lkgs);
 	sent->num_linkages_alloced = 0;
 	sent->num_linkages_found = 0;
 	sent->num_linkages_post_processed = 0;
@@ -54,6 +55,7 @@ void free_linkages(Sentence sent)
 void partial_init_linkage(Sentence sent, Linkage lkg, unsigned int N_words)
 {
 	lkg->num_links = 0;
+	// It is impossible for a planar graph to have more links than this.
 	lkg->lasz = 2 * N_words;
 	lkg->link_array = (Link *) malloc(lkg->lasz * sizeof(Link));
 	memset(lkg->link_array, 0, lkg->lasz * sizeof(Link));

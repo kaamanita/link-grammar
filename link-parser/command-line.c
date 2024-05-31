@@ -41,7 +41,7 @@ static struct
 #endif
 	int echo_on;
 	Cost_Model_type cost_model;
-	double max_cost;
+	float max_cost;
 	int screen_width;
 	int display_on;
 	ConstituentDisplayStyle display_constituents;
@@ -62,12 +62,13 @@ static const char *value_type[] =
 	"(integer) ", "(Boolean) ", "(float) ", "(string) ", "(command) ", ""
 };
 
-static int panic_variables_cmd(const Switch*, int);
-static int variables_cmd(const Switch*, int);
+static int clear_cmd(const Switch*, int);
+static int exit_cmd(const Switch*, int);
 static int file_cmd(const Switch*, int);
 static int help_cmd(const Switch*, int);
-static int exit_cmd(const Switch*, int);
 static int info_cmd(const Switch*, int);
+static int panic_variables_cmd(const Switch*, int);
+static int variables_cmd(const Switch*, int);
 
 Switch default_switches[] =
 {
@@ -110,6 +111,7 @@ Switch default_switches[] =
 	{"walls",      Bool, "Display wall words",              &local.display_walls},
 	{"width",      Int,  "The width of the display",        &local.screen_width},
 	{"wordgraph",  Int,  "Display sentence word-graph",     &local.display_wordgraph},
+	{"clear",      Cmd,  "Clear the AtomSpace cache",              clear_cmd},
 	{"exit",       Cmd,  "Exit the program",                       exit_cmd},
 	{"file",       Cmd,  "Read input from the specified filename", file_cmd},
 	{"help",       Cmd,  "List the commands and what they do",     help_cmd},
@@ -120,15 +122,24 @@ Switch default_switches[] =
 	{NULL,         Cmd,  NULL,                                     NULL}
 };
 
-static void put_opts_in_local_vars(Command_Options *);
-
 /*
- * A way to record the options default values.
+ * Record the parse options default values.
+ *
+ * Set the string parse options to their static default value so they
+ * don't point to a static (test, debug) or dynamic (dialect) memory of
+ * the library (but anyway we need to do that for the test,debug and
+ * verbosity parse options because they might have been set by command
+ * line arguments just before this function is invoked.)
  */
 void save_default_opts(Command_Options *copts)
 {
 	put_opts_in_local_vars(copts);
 	saved_defaults = local;
+	// XXX Set defaults assuming stable library settings
+	saved_defaults.test = (char *)"";
+	saved_defaults.debug = (char *)"";
+	saved_defaults.dialect = (char *)"";
+	saved_defaults.verbosity = 1;
 }
 
 static void restore_default_local_vars(void)
@@ -136,8 +147,17 @@ static void restore_default_local_vars(void)
 	local = saved_defaults;
 }
 
+// Return the value of the static verbosity.
+// This avoids the need to define "verbosity" as extern, which may clash
+// with the library "verbosity", and make the parse options "verbosity"
+// available before the main loop in link-parser.c.
+int get_verbosity(void)
+{
+	return local.verbosity;
+}
+
 /**
- *  Gets rid of all the white space in the string s.
+ * Gets rid of all the white space in the string s.
  */
 static void clean_up_string(char * s)
 {
@@ -155,7 +175,7 @@ static void clean_up_string(char * s)
 		if (0 == w) break;
 		if (0 > (ssize_t)w)
 		{
-			prt_error("Unable to process UTF8 command input string.\n");
+			prt_error("Error: Unable to process UTF8 command input string.\n");
 			break;
 		}
 		len -= w;
@@ -192,7 +212,7 @@ static bool is_numerical_rhs(char *s)
 		if (0 == w) break;
 		if (0 > (ssize_t)w)
 		{
-			prt_error("Unable to process UTF8 command input string.\n");
+			prt_error("Error: Unable to process UTF8 command input string.\n");
 			break;
 		}
 		len -= w;
@@ -237,7 +257,7 @@ static const char *switch_value_string(const Switch *as)
 	switch (as->param_type)
 	{
 		case Float: /* Float point print! */
-			snprintf(buf, sizeof(buf), "%.2f", *((double *)as->ptr));
+			snprintf(buf, sizeof(buf), "%.3f", *((float *)as->ptr));
 			break;
 		case Bool:
 			/* FALLTHRU */
@@ -270,7 +290,6 @@ static const char *switch_value_string(const Switch *as)
 #define HELPFILE_LANG_TEMPLATE_SIZE (sizeof(HELPFILE_LANG_TEMPLATE)-1)
 #define HELPFILE_TEMPLATE_SIZE \
 	(sizeof(HELPFILE_BASE HELPFILE_EXT)+HELPFILE_LANG_TEMPLATE_SIZE)
-#define D_USER_FILES 4 /* Debug level for files, see error.h. */
 #define DEFAULT_HELP_LANG "en"
 
 static FILE *help_file;
@@ -409,7 +428,7 @@ static FILE *open_help_file(int verbosity)
 		help_file = linkgrammar_open_data_file(help_filename);
 	}
 
-	if ((NULL == help_file) && (verbosity > D_USER_FILES))
+	if ((NULL == help_file) && (verbosity == D_USER_FILES))
 	{
 		prt_error("Error: Cannot open help file '%s': %s\n",
 		          help_filename, strerror(errno));
@@ -445,7 +464,7 @@ void display_1line_help(const Switch *sp, bool is_completion)
 	}
 
 	int n; /* actual varname and optional varvalue print length */
-	printf("%s%s%s%n", sp->string, display_eq ? "=" : " ", value, &n);
+	n = printf("%s%s%s", sp->string, display_eq ? "=" : " ", value);
 	if (is_completion) printf("%*s", MAX(0, vnw - n), "");
 	printf("%*s- %s\n", vtw, value_type[sp->param_type], sp->description+undoc);
 }
@@ -512,7 +531,7 @@ static void display_help(const Switch *sp, Command_Options *copts)
 
 	if (feof(hf))
 	{
-		if (local.verbosity >= D_USER_FILES)
+		if (local.verbosity == D_USER_FILES)
 			prt_error("Error: Cannot find command \"%s\" in help file\n",
 			          sp->string);
 	}
@@ -642,8 +661,7 @@ void setup_panic_parse_options(Command_Options *copts, int sentence_length)
 
 	if (local.verbosity > 1)
 	{
-		int n = 0;
-		fprintf(stdout, "Panic mode setup: %n", &n); /* Remember alignment. */
+		int n = fprintf(stdout, "Panic mode setup: "); /* Remember alignment. */
 		fprintf(stdout,
 		        "!cost-max=%.2f !limit=%d !timeout=%d " "!spell=%d !short=%d\n"
 		        "%*s(all_short=%d min_null_count=%d max_null_count=%d)\n",
@@ -707,6 +725,11 @@ static int exit_cmd(const Switch *uc, int n)
 	return 'e';
 }
 
+static int clear_cmd(const Switch *uc, int n)
+{
+	return 'k';
+}
+
 static int file_cmd(const Switch *uc, int n)
 {
 	return 'f';
@@ -766,9 +789,9 @@ static int handle_help_command(const Switch *as, char *line,
 			{
 				rc = -1;     /* Error indication. */
 				if (count > 1)
-					prt_error("Ambiguous command: \"%s\".  %s\n", s, helpmsg);
+					prt_error("Error: Ambiguous command: \"%s\".  %s\n", s, helpmsg);
 				else
-					prt_error("Undefined command: \"%s\".  %s\n", s, helpmsg);
+					prt_error("Error: Undefined command: \"%s\".  %s\n", s, helpmsg);
 			}
 		}
 	}
@@ -845,7 +868,7 @@ static int x_issue_special_command(char * line, Command_Options *copts, Dictiona
 
 		if (count > 1)
 		{
-			prt_error("Ambiguous command \"%s\".  %s\n", s, helpmsg);
+			prt_error("Error: Ambiguous command \"%s\".  %s\n", s, helpmsg);
 			return -1;
 		}
 		if (count == 1)
@@ -856,7 +879,7 @@ static int x_issue_special_command(char * line, Command_Options *copts, Dictiona
 				size_t junk = strcspn(s, WHITESPACE);
 				if (junk != strlen(s))
 				{
-					prt_error("Junk after a boolean variable: \"%s\".  %s\n",
+					prt_error("Error: Junk after a boolean variable: \"%s\".  %s\n",
 					          &s[junk], helpmsg);
 					return -1;
 				}
@@ -940,7 +963,7 @@ static int x_issue_special_command(char * line, Command_Options *copts, Dictiona
 		if (as[j].param_type == Float)
 		{
 			char *err;
-			double val = strtod(y, &err);
+			float val = strtof(y, &err);
 			if (('\0' == *y) || ('\0' != *err))
 			{
 				prt_error("Error: Invalid value \"%s\" for variable \"%s\". %s\n",
@@ -948,8 +971,8 @@ static int x_issue_special_command(char * line, Command_Options *copts, Dictiona
 				return -1;
 			}
 
-			*((double *) as[j].ptr) = val;
-			printf("%s set to %5.2f\n", as[j].string, val);
+			*((float *) as[j].ptr) = val;
+			printf("%s set to %5.3f\n", as[j].string, val);
 			return 'c';
 		}
 		else
@@ -993,7 +1016,7 @@ static int x_issue_special_command(char * line, Command_Options *copts, Dictiona
 	return -1;
 }
 
-static void put_opts_in_local_vars(Command_Options* copts)
+void put_opts_in_local_vars(Command_Options* copts)
 {
 	Parse_Options opts = copts->popts;
 	local.verbosity = parse_options_get_verbosity(opts);

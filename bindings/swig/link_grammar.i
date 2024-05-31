@@ -4,6 +4,12 @@
 * shared (dynamic) library.
 *
 ***********************************************************************/
+%begin %{
+#ifdef _WIN32
+#define _STL_CRT_SECURE_INVALID_PARAMETER _CRT_SECURE_INVALID_PARAMETER
+#endif
+%}
+
 %module clinkgrammar
 %{
 
@@ -21,6 +27,8 @@
 %ignore parse_options_set_max_memory(Parse_Options  opts, int mem); // No-Op
 %ignore parse_options_get_max_memory(Parse_Options opts);
 // End of ignored API calls.
+
+%ignore lg_library_failure_hook;     /* Not supported. */
 
 %nodefaultdtor lg_errinfo;
 
@@ -59,6 +67,8 @@
 %free_returned_value_by_free(lg_exp_stringify, char *);
 %free_returned_value_by_free(sentence_unused_disjuncts, Disjunct **);
 %free_returned_value_by_free(disjunct_expression, char *);
+%free_returned_value_by_free(dict_display_word_expr, char *);
+%free_returned_value_by_free(dict_display_word_info, char *);
 // End of functions that need free().
 
 // Reset to default.
@@ -226,7 +236,14 @@ static void PythonCallBack(lg_errinfo *lge, void *func_and_data)
    PyObject *data = PyTuple_GetItem((PyObject *)func_and_data, 1);
 
    PyObject *args = Py_BuildValue("OO", pylge, data);
-   PyObject *rc = PyEval_CallObject(func, args); /* Py LG error cb. */
+
+   /* Call Python LG error callback. */
+   PyObject *rc =
+#if PY_VERSION_HEX >= 0x03090000 // PyEval_CallObject() got deprecated on 3.9
+       PyObject_CallObject(func, args);
+#else
+       PyEval_CallObject(func, args);
+#endif
 
    Py_DECREF(pylge);
    Py_DECREF(args);

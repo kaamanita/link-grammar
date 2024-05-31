@@ -4,9 +4,10 @@ Directories
 Listed in rough processing order.
 
  * dict-common  - generic dictionary-handling code.
+ * dict-ram     - Maintain dictionary in RAM.
  * dict-file    - read dictionaries from files.
- * dict-sql     - read dictionaries from an SQL DB
-                  (unfinished, under development!).
+ * dict-sql     - read dictionaries from an SQL DB.
+ * dict-atomese - read dictionaries from an OpenCog AtomSpace.
 
  * tokenize     - Convert sentence strings into word sequences.
                   Actually, into a word-graph of possible words.
@@ -30,7 +31,7 @@ Listed in rough processing order.
 Version 5.3.14 - Improved error notification facility
 =====================================================
 
-This code is still "experimental", so it's API may be changed.
+This code is still "experimental", so its API may be changed.
 
 It is intended to be mostly compatible. It supports multi-threading -
 all of its operations are local per-thread.
@@ -187,9 +188,9 @@ The SAT solver speed can be significantly increased by these changes:
 - Use "tracons". See `disjunct-utils.c` for what they are.
 - Use memory pools.
 - Improve and add hashing.
-- Improve the postprocessing efficiency. For short sentences (also in
+- Improve the post-processing efficiency. For short sentences (also in
   the classic parser) this has a potential for maybe 10% speedup.
-  However, for getting several parsings for long sentences a huge speedup
+  However, when getting several parses of long sentences, a huge speedup
   is expected.
 
 The code can still be built by saying

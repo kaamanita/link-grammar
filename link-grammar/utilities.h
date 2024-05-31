@@ -130,7 +130,7 @@ typedef SSIZE_T ssize_t;
 #define iswspace_l  _iswspace_l
 #define towlower_l  _towlower_l
 #define towupper_l  _towupper_l
-#define strtod_l    _strtod_l
+#define strtof_l    _strtof_l
 #define freelocale _free_locale
 #endif /* HAVE_LOCALE_T */
 
@@ -166,7 +166,7 @@ int strncasecmp(const char *s1, const char *s2, size_t n);
 #ifdef HAVE_LOCALE_T
 locale_t newlocale_LC_CTYPE(const char *);
 #else
-typedef int locale_t;
+typedef void *locale_t;
 #define iswupper_l(c, l) iswupper(c)
 #define iswalpha_l(c, l) iswalpha(c)
 #define iswdigit_l(c, l) iswdigit(c)
@@ -218,7 +218,7 @@ void *aligned_alloc(size_t alignment, size_t size);
 #define strndupa(s, n) _strndupa3(alloca((n)+1), s, n)
 static inline char *_strndupa3(char *new_s, const char *s, size_t n)
 {
-	strncpy(new_s, s, n);
+	memcpy(new_s, s, n);
 	new_s[n] = '\0';
 
 	return new_s;
@@ -226,7 +226,6 @@ static inline char *_strndupa3(char *new_s, const char *s, size_t n)
 #endif
 
 /* From ccan array_size.h and build_assert.h, which are under a CC0 license */
-#define BUILD_ASSERT_OR_ZERO(cond) (sizeof(char [1 - 2*!(cond)]) - 1)
 #if !defined(ARRAY_SIZE)
 /**
  * ARRAY_SIZE: Get the number of elements in a visible array
@@ -238,10 +237,11 @@ static inline char *_strndupa3(char *new_s, const char *s, size_t n)
  */
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + _array_size_chk(arr))
 
-#if HAVE_BUILTIN_TYPES_COMPATIBLE_P && HAVE_TYPEOF
+#if HAVE___BUILTIN_TYPES_COMPATIBLE_P && HAVE_TYPEOF
+#define BUILD_ASSERT_OR_ZERO(cond) (sizeof(char [1 - 2*!(cond)]) - 1)
 /* Two gcc extensions.
  * &a[0] degrades to a pointer: a different type from an array */
-#define _array_size_chk(arr)
+#define _array_size_chk(arr) \
 	BUILD_ASSERT_OR_ZERO(!__builtin_types_compatible_p(typeof(arr), \
 							typeof(&(arr)[0])))
 #else
@@ -253,12 +253,14 @@ static inline char *_strndupa3(char *new_s, const char *s, size_t n)
  * support C11. So it already supports all the features below. */
 
 /* Optimizations etc. that only gcc understands */
+/* FIXME: Define also for MSVC. */
 #if __GNUC__
 #define GCC_DIAGNOSTIC
 #define UNREACHABLE(x) (__extension__ ({if (x) __builtin_unreachable();}))
 #define GNUC_MALLOC __attribute__ ((__malloc__))
 #define GNUC_UNUSED __attribute__ ((__unused__))
-#define GNUC_NORETURN __attribute__ ((__noreturn__))
+#define NORETURN __attribute__ ((__noreturn__))
+#define ATTR_PURE __attribute__ ((__pure__))
 #define NO_SAN __attribute__ ((no_sanitize_address, no_sanitize_undefined))
 
 /* Define when configuring with ASAN/UBSAN - for fast dict load (of course
@@ -269,7 +271,6 @@ static inline char *_strndupa3(char *new_s, const char *s, size_t n)
 #else
 #define NO_SAN_DICT
 #endif
-
 #ifndef DONT_EXPECT
 #define likely(x)      __builtin_expect(!!(x), 1)
 #define unlikely(x)    __builtin_expect(!!(x), 0)
@@ -279,13 +280,18 @@ static inline char *_strndupa3(char *new_s, const char *s, size_t n)
 #define UNREACHABLE(x)
 #define GNUC_MALLOC
 #define GNUC_UNUSED
-#define GNUC_NORETURN
+#define NORETURN
+#define ATTR_PURE
 #define NO_SAN_DICT
 
 #define likely(x) x
 #define unlikely(x) x
 #endif
 
+#ifdef _MSC_VER
+#undef NORETURN
+#define NORETURN __declspec(noreturn)
+#endif
 
 /* Apply a pragma to a specific code section only.
  * XXX According to the GCC docs, we cannot use here something like
@@ -489,6 +495,7 @@ typedef struct
 
 dyn_str* dyn_str_new(void);
 void dyn_str_delete(dyn_str*);
+static inline void dyn_str_release(char * mem) { free(mem); }
 void dyn_strcat(dyn_str*, const char*);
 void dyn_trimback(dyn_str*);
 char * dyn_str_take(dyn_str*);
@@ -518,7 +525,7 @@ size_t get_max_space_used(void);
 char * get_default_locale(void);
 void set_utf8_program_locale(void);
 bool try_locale(const char *);
-bool strtodC(const char *, float *);
+bool strtofC(const char *, float *);
 
 /**
  * Returns the smallest power of two that is at least i and at least 1
@@ -529,5 +536,17 @@ static inline size_t next_power_of_two_up(size_t i)
 	while (j<i) j <<= 1;
 	return j;
 }
+
+/**
+ * Return log2 of a given power-of-2 \p i.
+ */
+static inline unsigned int power_of_2_log2(size_t i)
+{
+	unsigned int n = 0;
+	while (i >>= 1)
+		n++;
+	return n;
+}
+
 
 #endif /* _LINK_GRAMMAR_UTILITIES_H_ */

@@ -18,10 +18,38 @@
 #include "error.h"
 #include "linkage.h"
 #include "sane.h"
-#include "tokenize/tok-structures.h"    // Wordgraph_pathpos_s
+#include "tokenize/tok-structures.h"    // Morpheme_type
 #include "tokenize/word-structures.h"   // Word_struct
 #include "tokenize/wordgraph.h"
 #include "utilities.h"
+
+// Wordgraph_pathpos_s
+struct Wrdgr_path_s
+{
+	Gword *word;		/* Position in the Wordgraph */
+	const Gword **path; /* Linkage candidate wordgraph path */
+};
+typedef struct Wrdgr_path_s Wrdgr_pathpos;
+
+static size_t wrdgr_path_len(Wrdgr_pathpos *wp)
+{
+	size_t len = 0;
+	if (wp)
+		while (wp[len].word != NULL) len++;
+	return len;
+}
+
+static Wrdgr_pathpos *wrdgr_path_resize(Wrdgr_pathpos *wp, size_t len)
+{
+	wp = realloc(wp, (len+1) * sizeof(*wp));
+	wp[len].word = NULL;
+	return wp;
+}
+
+static void wrdgr_path_free(Wrdgr_pathpos *wp)
+{
+	free(wp);
+}
 
 /**
  * Construct word paths (one or more) through the Wordgraph.
@@ -41,11 +69,11 @@
  * null linkage.
  */
 #define D_WPA 7
-static void wordgraph_path_append(Wordgraph_pathpos **nwp, const Gword **path,
+static void wordgraph_path_append(Wrdgr_pathpos **nwp, const Gword **path,
                                   Gword *current_word, /* add to the path */
                                   Gword *p)      /* add to the path queue */
 {
-	size_t n = wordgraph_pathpos_len(*nwp);
+	size_t n = wrdgr_path_len(*nwp);
 
 	assert(NULL != p, "Tried to add a NULL word to the word queue");
 	if (current_word == p)
@@ -55,7 +83,7 @@ static void wordgraph_path_append(Wordgraph_pathpos **nwp, const Gword **path,
 	}
 
 	/* Check if the path queue already contains the word to be added to it. */
-	const Wordgraph_pathpos *wpt = NULL;
+	const Wrdgr_pathpos *wpt = NULL;
 
 	if (NULL != *nwp)
 	{
@@ -81,7 +109,7 @@ static void wordgraph_path_append(Wordgraph_pathpos **nwp, const Gword **path,
 				}
 				lgdebug(D_WPA, "Longer path is in the queue\n");
 				//print_lwg_path((Gword **)wpt->path, "Freeing");
-				free(wpt->path); /* To be replaced by a shorter path. */
+				gwordlist_cfree(wpt->path); /* To be replaced by a shorter path. */
 				break;
 			}
 		}
@@ -90,7 +118,7 @@ static void wordgraph_path_append(Wordgraph_pathpos **nwp, const Gword **path,
 	if ((NULL == wpt) || (p != wpt->word))
 	{
 		/* Not already in the path queue - add it. */
-		*nwp = wordgraph_pathpos_resize(*nwp, n+1);
+		*nwp = wrdgr_path_resize(*nwp, n+1);
 	}
 	else
 	{
@@ -100,18 +128,8 @@ static void wordgraph_path_append(Wordgraph_pathpos **nwp, const Gword **path,
 	}
 	(*nwp)[n].word = p;
 
-	if (NULL == path)
-	{
-			(*nwp)[n].path = NULL;
-	}
-	else
-	{
-		/* Duplicate the path from the current one. */
-		size_t path_arr_size = (gwordlist_len(path)+1)*sizeof(*path);
-
-		(*nwp)[n].path = malloc(path_arr_size);
-		memcpy((*nwp)[n].path, path, path_arr_size);
-	}
+	/* Duplicate the path from the current one. */
+	(*nwp)[n].path = gwordlist_copy(path);
 
 	if (NULL == current_word) return;
 
@@ -125,21 +143,21 @@ static void wordgraph_path_append(Wordgraph_pathpos **nwp, const Gword **path,
 }
 
 /**
- * Free the Wordgraph paths and the Wordgraph_pathpos array.
+ * Free the Wordgraph paths and the Wrdgr_pathpos array.
  * In case of a match, the final path is still needed so this function is
  * then invoked with free_final_path=false.
  */
-static void wordgraph_path_free(Wordgraph_pathpos *wp, bool free_final_path)
+static void wordgraph_path_free(Wrdgr_pathpos *wp, bool free_final_path)
 {
-	Wordgraph_pathpos *twp;
+	Wrdgr_pathpos *twp;
 
 	if (NULL == wp) return;
 	for (twp = wp; NULL != twp->word; twp++)
 	{
 		if (free_final_path || (MT_INFRASTRUCTURE != twp->word->morpheme_type))
-			free(twp->path);
+			gwordlist_cfree(twp->path);
 	}
-	free(wp);
+	wrdgr_path_free(wp);
 }
 
 #define NO_WORD (MAX_SENTENCE+1)
@@ -286,9 +304,9 @@ static size_t num_islands(const Linkage lkg, const Gword **wg_path)
 #define D_SLM 8
 bool sane_linkage_morphism(Sentence sent, Linkage lkg, Parse_Options opts)
 {
-	Wordgraph_pathpos *wp_new = NULL;
-	Wordgraph_pathpos *wp_old = NULL;
-	Wordgraph_pathpos *wpp = NULL;
+	Wrdgr_pathpos *wp_new = NULL;
+	Wrdgr_pathpos *wp_old = NULL;
+	Wrdgr_pathpos *wpp = NULL;
 	Gword **next; /* next Wordgraph words of the current word */
 	size_t i;
 	unsigned int null_count_found = 0;

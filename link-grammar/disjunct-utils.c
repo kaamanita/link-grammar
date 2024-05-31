@@ -112,9 +112,11 @@ Disjunct ** sentence_unused_disjuncts(Sentence sent)
 
 #define D_DISJ 5                        /* Verbosity level for this file. */
 
+#ifdef USE_SAT_SOLVER
 /**
  * free_disjuncts() -- free the list of disjuncts pointed to by c
  * (does not free any strings)
+ * Almost dead code -- not used anywhere, except by the SAT solver.
  */
 void free_disjuncts(Disjunct *c)
 {
@@ -126,6 +128,7 @@ void free_disjuncts(Disjunct *c)
 		xfree((char *)c, sizeof(Disjunct));
 	}
 }
+#endif // USE_SAT_SOLVER
 
 void free_categories_from_disjunct_array(Disjunct *dbase,
                                          unsigned int num_disjuncts)
@@ -170,6 +173,7 @@ void free_sentence_disjuncts(Sentence sent, bool category_too)
 		pool_delete(sent->Disjunct_pool);
 		pool_delete(sent->Connector_pool);
 		sent->Disjunct_pool = NULL;
+		sent->Connector_pool = NULL;
 	}
 }
 
@@ -193,10 +197,7 @@ Disjunct * catenate_disjuncts(Disjunct *d1, Disjunct *d2)
 unsigned int count_disjuncts(Disjunct * d)
 {
 	unsigned int count = 0;
-	for (; d != NULL; d = d->next)
-	{
-		count++;
-	}
+	for (; d != NULL; d = d->next) count++;
 	return count;
 }
 
@@ -216,12 +217,14 @@ static unsigned int count_connectors(Sentence sent)
 
 	return ccnt;
 }
+
 /* ============================================================= */
 
 typedef struct disjunct_dup_table_s disjunct_dup_table;
 struct disjunct_dup_table_s
 {
-	size_t dup_table_size;
+	unsigned int table_size_minus_1;
+	unsigned int log2_divisor;
 	Disjunct *dup_table[];
 };
 
@@ -231,23 +234,23 @@ struct disjunct_dup_table_s
  * This is the old version that doesn't check for domination, just
  * equality.
  */
-static inline unsigned int old_hash_disjunct(disjunct_dup_table *dt,
-                                             Disjunct * d, bool string_too)
+static inline connector_hash_t old_hash_disjunct(disjunct_dup_table *dt,
+                                                 Disjunct * d, bool string_too)
 {
-	unsigned int i;
-	i = 0;
-	for (Connector *e = d->left; e != NULL; e = e->next) {
-		i = (41 * (i + e->desc->uc_num)) + (unsigned int)e->desc->lc_letters + 7;
-	}
-	for (Connector *e = d->right; e != NULL; e = e->next) {
-		i = (41 * (i + e->desc->uc_num)) + (unsigned int)e->desc->lc_letters + 7;
-	}
+	connector_hash_t i = 0;
+
+	if (NULL != d->left)
+		i = connector_list_hash(d->left);
+	if (NULL != d->right)
+		i += 19 * connector_list_hash(d->right);
 	if (string_too)
 		i += string_hash(d->word_string);
-	i += (i>>10);
 
 	d->dup_hash = i;
-	return (i & (dt->dup_table_size-1));
+
+	i *= FIBONACCI_MULT;
+	// Feed back log2(table_size) MSBs.
+	return ((i ^ (i>>dt->log2_divisor)) & (dt->table_size_minus_1));
 }
 
 /**
@@ -262,6 +265,12 @@ static bool connectors_equal_prune(Connector *c1, Connector *c2)
 static bool disjuncts_equal(Disjunct * d1, Disjunct * d2, bool ignore_string)
 {
 	Connector *e1, *e2;
+
+	/* A shortcut to detect NULL and non-NULL jets on the same side.
+	 * Note that it is not possible to share memory between the
+	 * right/left jets due to field value differences (sharing would
+	 * invalidate this check). */
+	if (d1->left == d2->right) return false;
 
 	e1 = d1->left;
 	e2 = d2->left;
@@ -315,7 +324,8 @@ static disjunct_dup_table * disjunct_dup_table_new(size_t sz)
 	disjunct_dup_table *dt;
 
 	dt = malloc(sz * sizeof(Disjunct *) + sizeof(disjunct_dup_table));
-	dt->dup_table_size = sz;
+	dt->table_size_minus_1 = sz - 1;
+	dt->log2_divisor = (sizeof(connector_hash_t)*CHAR_BIT) - power_of_2_log2(sz);
 
 	memset(dt->dup_table, 0, sz * sizeof(Disjunct *));
 
@@ -327,89 +337,17 @@ static void disjunct_dup_table_delete(disjunct_dup_table *dt)
 	free(dt);
 }
 
-#ifdef DEBUG
-GNUC_UNUSED static int gword_set_len(const gword_set *gl)
-{
-	int len = 0;
-	for (; NULL != gl; gl = gl->next) len++;
-	return len;
-}
-#endif
-
+#define DEDUP_DEBUG 0
 /**
- * Return a new gword_set element, initialized from the given element.
- * @param old_e Existing element.
- */
-static gword_set *gword_set_element_new(gword_set *old_e)
-{
-	gword_set *new_e = malloc(sizeof(gword_set));
-	*new_e = (gword_set){0};
-
-	new_e->o_gword = old_e->o_gword;
-	gword_set *chain_next = old_e->chain_next;
-	old_e->chain_next = new_e;
-	new_e->chain_next = chain_next;
-
-	return new_e;
-}
-
-/**
- * Add an element to existing gword_set. Uniqueness is assumed.
- * @return A new set with the element.
- */
-static gword_set *gword_set_add(gword_set *gset, gword_set *ge)
-{
-	gword_set *n = gword_set_element_new(ge);
-	n->next = gset;
-	gset = n;
-
-	return gset;
-}
-
-/**
- * Combine the given gword sets.
- * The gword sets are not modified.
- * This function is used for adding the gword pointers of an eliminated
- * disjunct to the ones of the kept disjuncts, with no duplicates.
+ * Takes the list of disjuncts pointed to by dw, eliminates all
+ * duplicates. The elimination is done in-place. Because the first
+ * disjunct can never be eliminated (it cannot be a duplicate of
+ * anything before it), the argument disjunct list always points to the
+ * new list.
  *
- * @param kept gword_set of the kept disjunct.
- * @param eliminated gword_set of the eliminated disjunct.
- * @return Use copy-on-write semantics - the gword_set of the kept disjunct
- * just gets returned if there is nothing to add to it. Else - a new gword
- * set is returned.
+ * @return The number of eliminated disjuncts.
  */
-static gword_set *gword_set_union(gword_set *kept, gword_set *eliminated)
-{
-	/* Preserve the gword pointers of the eliminated disjunct if different. */
-	gword_set *preserved_set = NULL;
-	for (gword_set *e = eliminated; NULL != e; e = e->next)
-	{
-		gword_set *k;
-
-		/* Ensure uniqueness. */
-		for (k = kept; NULL != k; k = k->next)
-			if (e->o_gword == k->o_gword) break;
-		if (NULL != k) continue;
-
-		preserved_set = gword_set_add(preserved_set, e);
-	}
-
-	if (preserved_set)
-	{
-		/* Preserve the originating gword pointers of the remaining disjunct. */
-		for (gword_set *k = kept; NULL != k; k = k->next)
-			preserved_set = gword_set_add(preserved_set, k);
-		kept = preserved_set;
-	}
-
-	return kept;
-}
-
-/**
- * Takes the list of disjuncts pointed to by d, eliminates all
- * duplicates, and returns a pointer to a new list.
- */
-Disjunct *eliminate_duplicate_disjuncts(Disjunct *dw, bool multi_string)
+unsigned int eliminate_duplicate_disjuncts(Disjunct *dw, bool multi_string)
 {
 	unsigned int count = 0;
 	disjunct_dup_table *dt;
@@ -421,15 +359,19 @@ Disjunct *eliminate_duplicate_disjuncts(Disjunct *dw, bool multi_string)
 
 	dt = disjunct_dup_table_new(next_power_of_two_up(2 * count_disjuncts(dw)));
 
+#if DEDUP_DEBUG
+	unsigned int coll = 0;
+#endif
 	for (Disjunct *d = dw; d != NULL; d = d->next)
 	{
 		Disjunct *dx;
-		unsigned int h = old_hash_disjunct(dt, d, /*string_too*/!multi_string);
+		connector_hash_t h = old_hash_disjunct(dt, d, /*string_too*/!multi_string);
 
 		for (dx = dt->dup_table[h]; dx != NULL; dx = dx->dup_table_next)
 		{
 			if (d->dup_hash != dx->dup_hash) continue;
 			if (disjuncts_equal(dx, d, multi_string)) break;
+			//fprintf(stderr, "N"); // The same hash but a different disjunct.
 		}
 
 		if (dx != NULL)
@@ -468,18 +410,35 @@ Disjunct *eliminate_duplicate_disjuncts(Disjunct *dw, bool multi_string)
 		}
 		else
 		{
+#if DEDUP_DEBUG
+			if (dt->dup_table[h]) coll++;
+#endif
 			d->dup_table_next = dt->dup_table[h];
 			dt->dup_table[h] = d;
 			prev = d;
 		}
 	}
 
+#if DEDUP_DEBUG
+#if 1
+	// For particular words only.
+	unsigned int pw[] = { 2, 7, 12, 22, 34, 46 , 0};
+	for (int i = 0; pw[i] != 0; i++)
+		if (dw->originating_gword->o_gword->sent_wordidx == pw[i])
+#endif
+		{
+			fprintf(stderr, "edd: %.2f%% coll %u/%u\n",
+			        100.f * coll / count_disjuncts(dw), coll, count_disjuncts(dw));
+		}
+#endif
+
 	lgdebug(+D_DISJ+(0==count)*1024, "w%zu: Killed %u duplicates%s\n",
+	        dw->originating_gword == NULL ? 0 :
 	        dw->originating_gword->o_gword->sent_wordidx, count,
 	        multi_string ? " (different word-strings)" : "");
 
 	disjunct_dup_table_delete(dt);
-	return dw;
+	return count;
 }
 
 /* ============================================================= */
@@ -544,12 +503,15 @@ void count_disjuncts_and_connectors(Sentence sent, unsigned int *dca,
 
 	for (WordIdx w = 0; w < sent->length; w++)
 	{
+		unsigned int ndw = 0;
 		for (Disjunct *d = sent->word[w].d; d != NULL; d = d->next)
 		{
-			dcnt++;
+			ndw++;
 			for (Connector *c = d->left; c != NULL; c = c->next) ccnt++;
 			for (Connector *c = d->right; c !=NULL; c = c->next) ccnt++;
 		}
+		sent->word[w].num_disjuncts = ndw;
+		dcnt += ndw;
 	}
 
 	*cca = ccnt;
@@ -622,7 +584,7 @@ void count_disjuncts_and_connectors(Sentence sent, unsigned int *dca,
  * linkages per a given connector-pair using connector addresses. Since
  * an exhaustive search is done, such an approach has two main problems
  * for long sentences:
- * 1. A very big count hash table (Table_connector in count.c) is used
+ * 1. A very big count hash table (Table_tracon in count.c) is used
  * due to the huge number of connectors (100Ks) in long sentences, a
  * thing that causes a severe CPU cache trash (to the degree that
  * absolutely most of the memory accesses are L3 misses).
@@ -713,6 +675,18 @@ static Connector *pack_connectors(Tracon_sharing *ts, Connector *origc, int dir,
 	for (Connector *o = origc; NULL != o;  o = o->next)
 	{
 		newc = NULL;
+
+		/* The shallow indication is used only for pruning, but mark it
+		 * also for parsing anyway. tracon_set_add() uses it if
+		 * tracon_set_shallow() has been called (it is called if the
+		 * encoding is for pruning, but not when it is for parsing). The
+		 * shallow indication is also copied to the cblock connector (see
+		 * "No sharing yet" below), to be cached in the tracon_set and be
+		 * used by power_prune(). Note that due to memory sharing of the
+		 * original connectors (done in build_disjunct()), there is a need
+		 * to reset here the shallow indicator in non-shallow ones.
+		 * See also: Connector encoding, sharing and packing. */
+		o->shallow = (o == origc);
 
 		if (NULL != ts->csid[dir])
 		{
@@ -806,24 +780,29 @@ static Connector *pack_connectors(Tracon_sharing *ts, Connector *origc, int dir,
 static Disjunct *pack_disjunct(Tracon_sharing *ts, Disjunct *d, int w)
 {
 	Disjunct *newd;
-	uintptr_t token = (uintptr_t)w;
+	uintptr_t token;
 
-	newd = (ts->dblock)++;
+	newd = ts->dblock++;
 	newd->word_string = d->word_string;
 	newd->cost = d->cost;
 	newd->is_category = d->is_category;
 	newd->originating_gword = d->originating_gword;
 	newd->ordinal = d->ordinal;
 
-	if (NULL == ts->tracon_list)
-		 token = (uintptr_t)d->originating_gword;
-
-	if ((token != ts->last_token) && (NULL != ts->csid[0]))
+	if (NULL != ts->csid[0])
 	{
-		ts->last_token = token;
-		//printf("Token %ld\n", token);
-		tracon_set_reset(ts->csid[0]);
-		tracon_set_reset(ts->csid[1]);
+		if (NULL == ts->tracon_list)
+			token = (uintptr_t)d->originating_gword;
+		else
+			token = (uintptr_t)w;
+
+		if (token != ts->last_token)
+		{
+			ts->last_token = token;
+			//printf("Token %ld\n", token);
+			tracon_set_reset(ts->csid[0]);
+			tracon_set_reset(ts->csid[1]);
+		}
 	}
 	newd->left = pack_connectors(ts, d->left, 0, w);
 	newd->right = pack_connectors(ts, d->right, 1,  w);
@@ -852,12 +831,6 @@ static Disjunct *pack_disjuncts(Sentence sent, Tracon_sharing *ts,
 }
 
 #define TLSZ 8192         /* Initial size of the tracon list table */
-
-/* Reserved tracon ID space for NULL connectors (zero-length tracons).
- * Currently, tracons are unique per word. So this is actually the max.
- * number of words in a sentence rounded up to a power of 2.
- * FIXME: Derive it from MAX_SENTENCE. */
-#define WORD_OFFSET 256
 
 /** Create a context descriptor for disjuncts & connector memory "packing".
  *   Allocate a memory block for all the disjuncts & connectors.
@@ -920,7 +893,7 @@ static Tracon_sharing *pack_sentence_init(Sentence sent, bool is_pruning)
 	ts->dblock = dblock;
 	ts->num_connectors = ccnt;
 	ts->num_disjuncts = dcnt;
-	ts->word_offset = is_pruning ? 1 : WORD_OFFSET;
+	ts->word_offset = is_pruning ? 1 : NULL_TRACON_BLOCK;
 	ts->is_pruning = is_pruning;
 	ts->next_id[0] = ts->next_id[1] = ts->word_offset;
 	ts->last_token = (uintptr_t)-1;
@@ -1004,14 +977,20 @@ void free_tracon_sharing(Tracon_sharing *ts)
 	free(ts);
 }
 
+void free_tracon_memblock(Tracon_sharing *ts)
+{
+	free(ts->memblock);
+	free_tracon_sharing(ts);
+}
+
 /**
  * Pack all disjunct and connectors into one big memory block, share
  * tracon memory and generate tracon IDs (for parsing) or tracon lists
  * with reference count (for pruning). Aka "connector encoding".
  *
- * The disjunct and connectors packing in a contiguous memory facilitate a
+ * Packing the disjunct and connectors into contiguous memory facilitate
  * better memory caching for long sentences (a performance gain of a few
- * percents in the initial implementation, in which this was the sole
+ * percent in the initial implementation, in which this was the sole
  * purpose of this packing.) In addition, tracon memory sharing
  * drastically reduces the memory used for connectors.
  *
@@ -1117,4 +1096,9 @@ void restore_disjuncts(Sentence sent, void *saved_memblock, Tracon_sharing *ts)
 		sent->word[w].d = ts->d[w];
 
 	memcpy(ts->memblock, saved_memblock, ts->memblock_sz);
+}
+
+void free_saved_memblock(void * blk)
+{
+	free(blk);
 }

@@ -14,10 +14,10 @@
 #ifndef _LINK_GRAMMAR_CONNECTORS_H_
 #define _LINK_GRAMMAR_CONNECTORS_H_
 
-#include <ctype.h>   // for islower()
+#include <ctype.h>                      // islower()
 #include <stdlib.h>
 #include <stdbool.h>
-#include <stdint.h>  // for uint8_t
+#include <stdint.h>                     // uint8_t ...
 
 #include "api-types.h"
 #include "error.h"
@@ -31,6 +31,17 @@
  */
 #define MAX_SENTENCE 254        /* Maximum number of words in a sentence */
 
+/* Length-limits for how far connectors can reach out. */
+#define UNLIMITED_LEN 255
+
+/* Since tracon IDs are unique per sentence, for convenience NULL
+ * connectors (zero-length tracons) have tracon IDs equal to the word
+ * number on which their disjunct resides. To that end an initial block
+ * of IDs is reserved. It is the maximum number of words in a sentence
+ * rounded up to a power of 2.
+ */
+#define NULL_TRACON_BLOCK 256
+
 /* For faster comparisons, the connector lc part is encoded into a number
  * and a mask. Each letter is encoded using LC_BITS bits. With 7 bits, it
  * is possible to encode up to 9 letters in an uint64_t. */
@@ -42,7 +53,7 @@
 
 typedef uint64_t lc_enc_t;
 
-typedef uint32_t connector_hash_t;
+typedef uint32_t connector_uc_hash_t;
 
 #define CD_HEAD_DEPENDENT    (1<<0) /* Has a leading 'h' or 'd'. */
 #define CD_HEAD              (1<<1) /* 0: dependent; 1: head; */
@@ -68,19 +79,19 @@ static inline bool is_connector_subscript_char(unsigned char c)
 }
 /* End of connector string character validation. */
 
-/* The size of the following struct on a 64-bit machine is 32 bytes.
- * It should be kept at this size. If needed, uc_length
- * and uc_start can be eliminate or moved out. Also, there not enough
- * space here to implement cost per connector length - an index to a
- * cost table should be used instead.*/
-struct condesc_struct
-{
-	lc_enc_t lc_letters;
-	lc_enc_t lc_mask;
+typedef struct condesc_struct condesc_t;
 
-	const char *string;  /* The connector name w/o the direction mark, e.g. AB */
-	// double *cost; /* Array of cost by connector length (cost[0]: default) */
-	connector_hash_t uc_num; /* uc part enumeration. */
+/* The connector descriptors (see below) are pointed from a hash table
+ * with these elements. */
+typedef struct hdesc
+{
+	condesc_t *desc;
+} hdesc_t;
+
+typedef struct
+{
+	const char *string; /* The connector name w/o the direction mark, e.g. ABc */
+	connector_uc_hash_t str_hash;
 	uint8_t length_limit; /* If not 0, it gives the limit of the length of the
 	                       * link that can be used on this connector type. The
 	                       * value UNLIMITED_LEN specifies no limit.
@@ -92,8 +103,26 @@ struct condesc_struct
 	/* For connector match speedup when sorting the connector table. */
 	uint8_t uc_length;   /* uc part length */
 	uint8_t uc_start;    /* uc start position */
+
+	// float *cost;      // Array of cost by connector length (cost[0]: default)
+} condesc_more_t;
+
+/* Each connector type has a connector descriptor. The size of this
+ * struct is 32 byes, to facilitate CPU memory caching during parsing.
+ * The "more" field points to connector information that is needed in
+ * other steps. The con_num field is used a lot in steps that need
+ * connector hashing, and it is included here to avoid extra
+ * redirections.
+ * Multi connectors are considering the same type as their non-multi
+ * version, so the multi indication is kept in Connector_struct. */
+struct condesc_struct
+{
+	lc_enc_t lc_letters;
+	lc_enc_t lc_mask;
+	condesc_more_t *more;/* More information, for keeping small struct size. */
+	connector_uc_hash_t uc_num; /* uc part enumeration. */
+	uint32_t con_num;    /* Connector ordinal number. */
 };
-typedef struct condesc_struct condesc_t;
 
 typedef struct length_limit_def
 {
@@ -103,12 +132,6 @@ typedef struct length_limit_def
 	int length_limit;
 } length_limit_def_t;
 
-typedef struct hdesc
-{
-	condesc_t *desc;
-	connector_hash_t str_hash;
-} hdesc_t;
-
 typedef struct
 {
 	hdesc_t *hdesc;       /* Hashed connector descriptors table */
@@ -116,7 +139,9 @@ typedef struct
 	size_t size;          /* Allocated size */
 	size_t num_con;       /* Number of connector types */
 	size_t num_uc;        /* Number of connector types with different UC part */
-	Pool_desc *mempool;
+	size_t last_num;      /* All condescs up to here have been done already. */
+	Pool_desc *desc_pool; /* For condesc_t elements. */
+	Pool_desc *more_pool; /* For condesc_t::more. */
 	length_limit_def_t *length_limit_def;
 	length_limit_def_t **length_limit_def_next;
 } ConTable;
@@ -139,17 +164,17 @@ struct Connector_struct
 	Connector *next;
 	union
 	{
-		const gword_set *originating_gword; /* Used while and after parsing */
+		const gword_set *originating_gword; /* Used while and after parsing. */
 		struct
 		{
-			int32_t refcount;/* Memory-sharing reference count - for pruning. */
-			uint16_t exp_pos; /* The position in the originating expression,
-			                   currently used only for debugging dict macros. */
-			bool shallow;   /* TRUE if this is a shallow connector.
-			                 * A connectors is shallow if it is the first in
-			                 * its list on its disjunct. (It is deep if it is
-			                 * not the first in its list; it is deepest if it
-			                 * is the last on its list.) */
+			int32_t refcount;  /* Memory-sharing reference count - for pruning. */
+			uint16_t exp_pos;  /* The position in the originating expression,
+			                    * currently used only for debugging dict macros. */
+			bool shallow;      /* TRUE if this is a shallow connector.
+			                    * A connector is shallow if it is the first in
+			                    * its list on its disjunct. (It is deep if it is
+			                    * not the first in its list; it is deepest if it
+			                    * is the last on its list.) */
 		};
 	};
 };
@@ -157,7 +182,6 @@ struct Connector_struct
 void condesc_init(Dictionary, size_t);
 void condesc_reset(Dictionary);
 void condesc_setup(Dictionary);
-bool sort_condesc_by_uc_constring(Dictionary);
 condesc_t *condesc_add(ConTable *ct, const char *);
 void condesc_delete(Dictionary);
 void condesc_reuse(Dictionary);
@@ -168,12 +192,17 @@ void condesc_reuse(Dictionary);
  * accesses connectors */
 static inline const char * connector_string(const Connector *c)
 {
-	return c->desc->string;
+	return c->desc->more->string;
 }
 
 static inline unsigned int connector_uc_start(const Connector *c)
 {
-	return c->desc->uc_start;
+	return c->desc->more->uc_start;
+}
+
+static inline unsigned int connector_uc_length(const Connector *c)
+{
+	return c->desc->more->uc_length;
 }
 
 static inline const condesc_t *connector_desc(const Connector *c)
@@ -191,11 +220,17 @@ static inline unsigned int connector_uc_num(const Connector * c)
 	return c->desc->uc_num;
 }
 
+static inline unsigned int connector_num(const Connector * c)
+{
+	return 2 * c->desc->con_num + c->multi;
+}
 
 /* Connector utilities ... */
-Connector * connector_new(Pool_desc *, const condesc_t *, Parse_Options);
+Connector * connector_new(Pool_desc *, const condesc_t *);
 void set_connector_farthest_word(Exp *, int, int, Parse_Options);
 void free_connectors(Connector *);
+void calculate_connector_info(condesc_t *);
+int condesc_by_uc_constring(const void *, const void *);
 
 /**
  * Compare only the uppercase part of two connectors.
@@ -217,9 +252,6 @@ static inline Connector *connector_deepest(const Connector *c)
 		;
 	return (Connector *)c; /* Note: Constness removed. */
 }
-
-/* Length-limits for how far connectors can reach out. */
-#define UNLIMITED_LEN 255
 
 /**
  * Returns TRUE if s and t match according to the connector matching
@@ -302,6 +334,39 @@ static inline uint32_t string_hash(const char *s)
 	return i;
 }
 
+typedef uint32_t connector_hash_t;
+static const connector_hash_t FIBONACCI_MULT = 0x9E3779B9;
+
+static inline connector_hash_t connector_hash(const Connector *c)
+{
+	// connector_num() is different for each connector string + its multi
+	// attribute, and it naturally depends also on its head-dependent
+	// attribute, if any. For the importance of considering the
+	// head-dependent attribute during hashing see pull req #1487;
+	return connector_num(c);
+}
+
+/**
+ * \p c is assumed to be non-NULL.
+ */
+// To check hash functions, enable the "N" printing in
+// eliminate_duplicate_disjuncts().
+#define FEEDBACK_HASH 1
+static inline connector_hash_t connector_list_hash(const Connector *c)
+{
+	connector_hash_t accum = connector_hash(c);
+
+	for (c = c->next; c != NULL; c = c->next)
+#if FEEDBACK_HASH
+		accum = (accum<<7) + (accum<<14) + (accum >> 16) - connector_hash(c);
+#else
+		// Bad.
+		accum = (19 * accum) + connector_hash(c);
+#endif
+
+	return accum;
+}
+
 /**
  * Hash function for the classic parser linkage memoization.
  */
@@ -338,17 +403,20 @@ static inline size_t pair_hash(int lw, int rw,
 
 /**
  * Get the word number of the given tracon.
- * c is the leading tracon connector. The word number is extracted from
- * the nearest_word of the deepest connector.
+ * It is extracted from the nearest_word of the deepest connector.
+ * @param c The leading tracon connector.
+ * @param dir Direction - 0: left; 1: right.
+ * @return Sentence word number.
+ *
  * This function depends on setup_connectors() (which initializes
- * nearest_word). It should not be called after power_prune() (which
- * changes nearest_word).
+ * nearest_word). It should not be called during or after power_prune()
+ * (which changes nearest_word).
  *
  * Note: An alternative for getting the word number of a tracon is to keep
  * it in the tracon list table or in a separate array. Both ways add
  * noticeable overhead, maybe due to the added CPU cache footprint.
- * However, if the word number will be needed after power_prune() there
- * will be a need to keep it in an alternative way.
+ * However, if the need arises for the word number of a tracon during/after
+ * power_prune(), there will be a need to keep it in an alternative way.
  */
 static inline int get_tracon_word_number(Connector *c, int dir)
 {

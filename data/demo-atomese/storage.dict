@@ -1,0 +1,271 @@
+%
+% Example configuration file for an Atomspace-based dictionary.
+%
+% Three examples follow; one shows the use of the CogStorageNode, which
+% provides network access, and another using RocksStorageNode, which
+% provides access to dictionaries located on the local hard drive.
+% The last uses the FileStorageNode, which is actually used for the
+% demo.
+
+% But first, begin with boilerplate: The dictionary is for English,
+% the English locale should be used, and a version number.
+
+#define dictionary-lang           en;
+#define dictionary-locale         en_US.UTF-8;
+#define dictionary-version-number 5.12.4;
+
+% Never use LG built-in capitalization and downcasing rules.
+#define disable-downcasing true;
+
+% -----------------------
+% Dictionary data location.
+% The dictionary location is specified with a StorageNode. Any valid
+% StorageNode (including ProxyNodes) can be used to specify a data
+% source.  Below are three examples.
+%
+% -----------------------
+% CogStorageNode
+%
+% This will access an AtomSpace over the network, via a CogServer. The
+% CogServer must be running, and must be loaded with language data.
+%
+% The default port for CogServers is 17001. The `localhost` is just
+% the dotted IP address 127.0.0.1. In it's place, a domain name, e.g.
+% `example.com` or another dotted IPv4 address can be used.
+% #define storage-node "(CogStorageNode "cog://localhost:17001")";
+
+% -----------------------
+% RocksStorageNode
+%
+% This will access an AtomSpace on a local hard drive, stored in a
+% RocksDB database. The database must hold appropriate language data.
+%
+% The URL is just a path into the local filesystem.
+%
+% Uncomment this, and provide a correct file-path.
+% #define storage-node "(RocksStorageNode "rocks:///home2/linas/x13-all-in-one.rdb")";
+
+% -----------------------
+% FileStorageNode
+%
+% This will access a file containing an AtomSpace encoded with
+% s-expressions. The file must hold appropriate language data.
+%
+% The URL is just a path into the local filesystem.
+%
+% This is the one actually used in the demo. If you are getting errors,
+% then verify that the path below is correct.
+
+#define storage-node "(FileStorageNode "file:///usr/local/share/link-grammar/demo-atomese/atomese-dict.scm")";
+
+% -----------------------
+% Data structure configuration. By default, Link Grammar expressions and
+% disjuncts are created from Atomese Sections. They can also be created
+% from word-pairs, thus offering a form of Maximum Spanning Tree (MST)
+% parsing and Maximum Planar Graph (MPG) parsing. Existing sections can
+% be supplemented with word-pair links ("optional expressions", in LG).
+% If it is not possible to get a full parse with section and/or word-
+% pairs, then the ANY link type can be used to provide the missing link.
+% If sections and word-pairs are disabled, but ANY is enabled, then the
+% parses will be random planar graphs, with a uniform sampling (Just like
+% the `any` language, each graph appears with equal probability).  There
+% are a dozen parameters to enable and control each component above.
+%
+% Bool flag: obtain expressions from Atomese Sections. This is the
+% default mode.  Set to 0 to disable.
+#define enable-sections 1;
+
+% Supplement existing sections with optional links, obtained from word-
+% pair relations.  For example, if an existing disjunct `A- & B+` on
+% word "wrd" is supplemented with pairs, the new disjunct will be
+% `{J- or K+} & A- & B+ & {L- or M+}`, where `J-` and `L-` are obtained
+% from pairs of the form ("other", "wrd") and `K+` and `M+` are obtained
+% from pairs of the for ("wrd", "more"). The links `J`, `K`, `L` and `M`
+% are formed only if the AtomSpace has the corresponding word-pairs in it.
+%
+% If set to zero, these supplementary links will not be generated. If set
+% to 2 or more, then that many extra optional connectors, on each side,
+% will be added.
+%
+% If sections are not enabled, then this parameter has no effect.
+#define extra-pairs 1;
+
+% Same as above, but the supplementary connectors will all be of type
+% `ANY`, and thus can connect to anything. Since these can connect to
+% anything, they will not, in general, improve the parse. They are
+% mostly useful for dealing with new, unknown words, and generating
+% quasi-random linkages to those unknown words. The be effective,
+% the cost should be set high enough so that these are more costly
+% than existing word-pairs.
+%
+% This is a bool on/off flag. Setting to zero disables this.
+% If sections are disabled, the this parameter has no effect.
+#define extra-any 1;
+
+% Note that if a linkage cannot make use of the existing sections on a
+% word, then the above "extra" decorations will not have any effect.
+% To ensure complete linkage, disjuncts can be created out of word
+% pairs only, or even out of ANY links only. These are configured below.
+
+% Create expressions that consist entirely of word-pair relationships.
+% The disjuncts will have up to the specified number of connectors; 4
+% is the default. Setting this to zero disables the creation of such
+% disjuncts. If `enable-sections` above is turned off, the result will
+% be pure MST/MPG parsing.
+#define pair-disjuncts 4;
+
+% Supplement pure pair-only disjuncts with additional connectors of type
+% "ANY". This is useful for providing links between words that don't
+% already exist as pairs in the dataset. This has no effect, if
+% `pair-disjuncts` (above) is set to zero.  This is a bool on/off value;
+% setting to zero disables.
+#define pair-with-any 1;
+
+% It can happen that there are no full linkages, despite all words in
+% the sentence appearing with sections or in word-pairs. This can happen
+% around "the fringes", with rarely used words (slang, loan-words,
+% jargon). Such words may appear in word-pairs, or even in sections,
+% but are being used in a sentence in a novel, unexpected way, and thus
+% become unlinkable.  To avoid this, and obtain a complete linkage, no
+% matter what, words can be given expressions consisting entirely of
+% "ANY" connectors. This will be enough to link to expressions decorated
+% with extra "ANY" connectors, configured above.
+%
+% Bool flag: Create expressions that consist entirely of "ANY"
+% connectors. If `enable-sections` and `pair-disjuncts` (above) are
+% turned off, the result will be pure random planar tree parsing.
+#define any-disjuncts 1;
+
+% Enable the automatic generation of <UNKNOWN-WORD>. It will be
+% automatically added to the dictionary, with multi-ANY connectors
+% on it. The ANY connector will be used to link the unknown word
+% to some existing word, even if "extra" decorations are disabled
+% above.
+#define enable-unknown-word 1;
+
+% -----------------------
+% Cost configuration parameters.
+% In order for the above configurations to be effective, the relative
+% costs of sections, pairs and ANY links must be adjusted. The algos
+% that produce AtomSpace data are not directly compatible with the LG
+% cost subsystem, and so they need to be mapped in. The mapping is in
+% the form of a linear rescaling.
+
+% Location where disjunct costs are stored. The cost will be obtained
+% from the floating point value located at the `cost-key` Value on the
+% Sections. It's assumed that this is a FloatValue, which is a vector;
+% the index specifies the offset into this vector (zero-indexed.)
+#define cost-key "(Predicate "*-Mutual Info Key cover-section")";
+#define cost-index 1;
+
+% If the value at the key+index above is less than this cutoff,
+% the Section will not be added to the local dictionary.
+% In this example, the raw cost is the MI, and MI of less than
+% 4 will be rejected.
+#define cost-cutoff 4.0;
+
+% Sections with a missing cost will be assigned this default. To
+% ignore sections with a missing cost, set it to some value less
+% than `cost-cutoff`.
+#define cost-default 4.01;
+
+% The cost used by LG will be a linear rescaling of the raw data above.
+% The rescaling is y=mx+b where m==`cost-scale` and b==`cost-offset`
+% and x== the value fished out of the vector above.
+%
+% The scale factor is negative, so as to flip the sign on the costs.
+% In the demo dictionary, the costs are provided by the MI, which is
+% "better", the more positive it is.  The LG costs, however, are
+% "better" when they are smaller (less positive). Thus, a sign-flip
+% is called for.
+%
+% The choice below maps the MI interval [0,4] to the cost interval
+% [3,2]. Higher MI's will be mapped to lower costs.
+#define cost-scale -0.25;
+#define cost-offset 3.0;
+
+% Disjuncts with a cost larger than this will not be used during
+% parsing. This can be over-ridden with the !cost-max parser option.
+% This applies both to the available disjuncts, and the ones created
+% dynamically, from pairs.
+#define max-disjunct-cost 3.0;
+
+% No more than this many disjuncts will be created for a word. If the
+% dictionary encodes for more than these, then disjuncts will be
+% selected randomly, to not exceed this limit. The selection is applied
+% after the above cost-max limit, and after some pre-pruning that avoids
+% the selection of disjuncts that cannot possibly be used.
+#define max-disjuncts 75000;
+
+% -----------------------
+% If disjuncts are not directly available, they can be created on the
+% fly, from word-pairs. The settings below are analogous to those above,
+% but are for word-pairs.
+
+% Word-pairs are encoded in the dictionary as
+%    (Edge pair-predicate (List (Word "leftword") (Word "rightword")))
+% The pair-predicate is configurable, as below.
+
+% The demo dictionary uses a simple PredicateNode:
+#define pair-predicate "(Predicate "wrdpr")";
+
+% Current AtomSpace configurations use the BondNode
+% #define pair-predicate "(BondNode "ANY")";
+
+% Older dictionaries use the "(LgLinkNode "ANY")" to mark word pairs.
+% #define pair-predicate "(LgLink "ANY")";
+
+% Same as above, but for word-pairs. Note the different key!
+#define pair-key "(Predicate "*-Mutual Info Key-*")";
+#define pair-index 1;
+
+% Word-pair MI's only "make sense" when they are 4.0 or greater.
+% The highest-possible MI depends on the dataset, but is roughly
+% equal to log_2 of the number of word-pairs in the dataset. The
+% MI for most "good" word-pairs will be in the 4 to 20 range.
+%
+% Setting the cutoff to 4.0 causes MI of less than 4 to be dropped.
+#define pair-cutoff 4.0;
+
+% The pair-default is used for pairs without MI. To ignore pairs with
+% missing MI, set this to less than the pair-cutoff.
+#define pair-default 4.01;
+
+% The LG cost system is "backwards" from MI: the higher the cost, the
+% less desirable the disjunct. The linear rescaling serves to remap
+% Atomese MI's into LG costs. The rescaling is in the form of mx+b.
+%
+% The below maps the MI interval [4,12] to [2,0], with MI's larger
+% than 12 being mapped to negative costs (thus encouraging cycles).
+%
+#define pair-scale -0.25;
+#define pair-offset 3.0;
+
+% Keep in mind that the parser ranks parses from lowest to highest cost.
+% If word-pair links have a negative cost, the parser is incentivized to
+% add as many of these as possible, while still resulting in a planar
+% graph with many loops. Viz, "Maximal Planar Graphs" (MPG). Conversely,
+% if word-pair links have a positive cost, Minimal Spanning Trees (MST)
+% will be created (minimizing the total cost.)
+
+% Dynamic formula for word-pairs. If this is set, then, instead of
+% using the static, pre-computed costs located at `pair-key`, a
+% defined formula will be used to calculate the costs on the fly.
+% This has the advantage that there is no need to precompute costs
+% for every possible word-pair; the costs are always up-to-date.
+% This has the disadvange of being much less efficient than working
+% with pre-computed costs, as each access forces re-computation.
+% Blanked out by default.
+% #define pair-formula "(DefinedProcedure "*-dynamic MI ANY")";
+
+% Default cost for `ANY` link types. The `ANY` link type is meant to
+% provide a desperate, last-chance opportunity to link to a word that
+% cannot otherwise link with disjuncts or word-pairs.  It is given a
+% high cost, so that it is not used when other links are available.
+#define any-default 2.6;
+
+% -----------------------
+% For this file to be read, at least one bogus entry is needed. It is
+% meaningless; we only need to trick the code into reading this file.
+% This file is read as an affix file, so only affix names are allowed.
+foo: UNITS+;

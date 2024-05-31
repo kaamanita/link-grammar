@@ -11,6 +11,8 @@
 /*                                                                       */
 /*************************************************************************/
 
+#include <inttypes.h>                    // format macros
+
 #include "api-structures.h"              // for Sentence_s
 #include "connectors.h"
 #include "dict-common/dict-structures.h" // expression_stringify
@@ -48,6 +50,7 @@
  */
 
 #define D_EXPRUNE 9
+#define D_PRINT_NUM_DISJUNCTS 5
 
 #ifdef DEBUG
 #define DBG(p, w, X) \
@@ -182,7 +185,7 @@ static inline bool matches_S(connector_table **ct, int w, condesc_t * c)
  * doesn't match anything in the set S.
  *
  * If an OR or AND type expression node has one child, we can replace it
- * by it's child.  This, of course, is not really necessary, except for
+ * by its child.  This, of course, is not really necessary, except for
  * performance.
  */
 
@@ -194,8 +197,8 @@ static Exp* purge_Exp(exprune_context *ctxt, int, Exp *, char);
 static bool or_purge_operands(exprune_context *ctxt, int w, Exp *e, char dir)
 {
 #if NOTYET
-	const double nullexp_nonexistence = -9999;
-	double nullexp_mincost = nullexp_nonexistence;
+	const float nullexp_nonexistence = -9999;
+	float nullexp_mincost = nullexp_nonexistence;
 	int nullexp_count = 0;
 #endif
 
@@ -393,6 +396,23 @@ static char *print_expression_sizes(Sentence sent)
 	return dyn_str_take(e);
 }
 
+
+static void print_expression_disjunct_count(Sentence sent)
+{
+	uint64_t dcnt, t = 0;
+
+	for (WordIdx i = 0; i < sent->length; i++)
+	{
+		dcnt = 0;
+		for (const X_node *x = sent->word[i].x; x != NULL; x = x->next)
+			dcnt += count_clause(x->exp);
+		prt_error("%s(%"PRIu64") ", sent->word[i].alternatives[0], dcnt);
+		t += dcnt;
+	}
+	prt_error("\n\\");
+	prt_error("Total: %"PRIu64" disjuncts\n\n", t);
+}
+
 void expression_prune(Sentence sent, Parse_Options opts)
 {
 	size_t w;
@@ -407,6 +427,12 @@ void expression_prune(Sentence sent, Parse_Options opts)
 	ctxt.N_deleted = 1;  /* a lie to make it always do at least 2 passes */
 
 	DBG_EXPSIZES("Initial expression sizes\n%s", e);
+
+	if (verbosity_level(D_PRINT_NUM_DISJUNCTS))
+	{
+		prt_error("Debug: Before expression_prune():\n\\");
+		print_expression_disjunct_count(sent);
+	}
 
 	for (int pass = 0; ; pass++)
 	{
@@ -485,6 +511,12 @@ void expression_prune(Sentence sent, Parse_Options opts)
 	}
 
 	free_connector_table(&ctxt);
+
+	if (verbosity_level(D_PRINT_NUM_DISJUNCTS))
+	{
+		prt_error("Debug: After expression_prune():\n\\");
+		print_expression_disjunct_count(sent);
+	}
 }
 
 #if 0 // VERY_DEAD_NO_GOOD_IDEA

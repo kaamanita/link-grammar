@@ -24,10 +24,11 @@
 
 Gword *gword_new(Sentence sent, const char *s)
 {
-	Gword *gword = malloc(sizeof(*gword));
+	Gword *gword = malloc(sizeof(Gword));
 
-	memset(gword, 0, sizeof(*gword));
+	memset(gword, 0, sizeof(Gword));
 	assert(NULL != s, "Null-string subword");
+	assert(0 != *s, "Empty-string subword");
 	gword->subword = string_set_add(s, sent->string_set);
 
 	if (NULL != sent->last_word) sent->last_word->chain_next = gword;
@@ -61,6 +62,28 @@ void gwordlist_append(Gword ***arrp, Gword *p)
 
 	*arrp = gwordlist_resize(*arrp, n);
 	(*arrp)[n] = p;
+}
+
+void gwordlist_free(Gword ** gw)
+{
+	free(gw);
+}
+
+void gwordlist_cfree(const Gword ** gw)
+{
+	free(gw);
+}
+
+const Gword ** gwordlist_copy(const Gword ** path)
+{
+	if (NULL == path) return NULL;
+
+	/* Duplicate the path from the current one. */
+	size_t path_arr_size = (gwordlist_len(path)+1)*sizeof(*path);
+
+	const Gword ** pcp = malloc(path_arr_size);
+	memcpy(pcp, path, path_arr_size);
+	return pcp;
 }
 
 #if 0
@@ -133,7 +156,7 @@ Wordgraph_pathpos *wordgraph_pathpos_resize(Wordgraph_pathpos *wp,
  *   diff_alternative: validate we don't queue words from the same alternative.
  */
 bool wordgraph_pathpos_add(Wordgraph_pathpos **wp, Gword *p, bool used,
-                              bool same_word, bool diff_alternative)
+                           bool same_word, bool diff_alternative)
 {
 	size_t n = wordgraph_pathpos_len(*wp);
 	Wordgraph_pathpos *wpt;
@@ -187,6 +210,11 @@ bool wordgraph_pathpos_add(Wordgraph_pathpos **wp, Gword *p, bool used,
 	(*wp)[insert_here].next_ok = false;
 
 	return true;
+}
+
+void wordgraph_pathpos_free(Wordgraph_pathpos *wp)
+{
+	free(wp);
 }
 
 /**
@@ -453,6 +481,93 @@ const char *gword_status(Sentence sent, const Gword *w)
 	return r;
 }
 
+// --------------------------------------------------------------------
+
+#ifdef DEBUG
+GNUC_UNUSED static int gword_set_len(const gword_set *gl)
+{
+	int len = 0;
+	for (; NULL != gl; gl = gl->next) len++;
+	return len;
+}
+#endif
+
+/**
+ * Return a new gword_set element, initialized from the given element.
+ * @param old_e Existing element.
+ */
+static gword_set *gword_set_element_new(gword_set *old_e)
+{
+	gword_set *new_e = malloc(sizeof(gword_set));
+	*new_e = (gword_set){0};
+
+	new_e->o_gword = old_e->o_gword;
+	gword_set *chain_next = old_e->chain_next;
+	old_e->chain_next = new_e;
+	new_e->chain_next = chain_next;
+
+	return new_e;
+}
+
+static void gword_set_element_free(gword_set * e)
+{
+	free(e);
+}
+
+/**
+ * Add an element to existing gword_set. Uniqueness is assumed.
+ * @return A new set with the element.
+ */
+static gword_set *gword_set_add(gword_set *gset, gword_set *ge)
+{
+	gword_set *n = gword_set_element_new(ge);
+	n->next = gset;
+	gset = n;
+
+	return gset;
+}
+
+/**
+ * Combine the given gword sets.
+ * The gword sets are not modified.
+ * This function is used for adding the gword pointers of an eliminated
+ * disjunct to the ones of the kept disjuncts, with no duplicates.
+ *
+ * @param kept gword_set of the kept disjunct.
+ * @param eliminated gword_set of the eliminated disjunct.
+ * @return Use copy-on-write semantics - the gword_set of the kept disjunct
+ * just gets returned if there is nothing to add to it. Else - a new gword
+ * set is returned.
+ */
+gword_set *gword_set_union(gword_set *kept, gword_set *eliminated)
+{
+	/* Preserve the gword pointers of the eliminated disjunct if different. */
+	gword_set *preserved_set = NULL;
+	for (gword_set *e = eliminated; NULL != e; e = e->next)
+	{
+		gword_set *k;
+
+		/* Ensure uniqueness. */
+		for (k = kept; NULL != k; k = k->next)
+			if (e->o_gword == k->o_gword) break;
+		if (NULL != k) continue;
+
+		preserved_set = gword_set_add(preserved_set, e);
+	}
+
+	if (preserved_set)
+	{
+		/* Preserve the originating gword pointers of the remaining disjunct. */
+		for (gword_set *k = kept; NULL != k; k = k->next)
+			preserved_set = gword_set_add(preserved_set, k);
+		kept = preserved_set;
+	}
+
+	return kept;
+}
+
+// --------------------------------------------------------------------
+
 static void word_queue_delete(Sentence sent)
 {
 	word_queue_t *wq = sent->word_queue;
@@ -479,7 +594,7 @@ static void gword_set_delete(Gword *w)
 		for (gword_set *f = w->gword_set_head.chain_next; NULL != f; f = n)
 		{
 			n = f->chain_next;
-			free(f);
+			gword_set_element_free(f);
 		}
 	}
 }

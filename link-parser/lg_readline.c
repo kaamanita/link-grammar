@@ -39,6 +39,7 @@
 
 #include "command-line.h"
 #include "parser-utilities.h"
+#include "lg_xdg.h"
 
 extern Switch default_switches[];
 static const Switch **sorted_names; /* sorted command names */
@@ -46,6 +47,46 @@ static wchar_t * wc_prompt = NULL;
 static wchar_t * prompt(EditLine *el)
 {
 	return wc_prompt;
+}
+
+// lg_readline() is called via a chain of functions:
+// fget_input_string -> get_line -> get_terminal_line -> lg_readline.
+// To avoid changing all of them, this variable is static for now.
+// FIXME: Move the call of find_history_filepath() to lg_readline(), and
+// implement one of these:
+// 1. Add the dictionary, argv[0] and prog to the call of each function.
+// 2. Option 1 is cumbersome since the first 3 functions have numerous
+//    arguments. So replace them with a new struct "io_params".
+static const char *history_file;
+
+static const char history_file_basename[] = "_history";
+
+void find_history_filepath(const char *dictname, const char *argv0,
+                           const char *prog)
+{
+	const char *xdg_prog = xdg_get_program_name(argv0);
+	if (NULL == xdg_prog) xdg_prog = prog;
+
+	// Prefix the history file name with a dict indication.
+	// To support sharing the history file by several similar dicts,
+	// use the dict name up to the first ":" if exists.
+	char *dictpref = strdup(dictname);
+	dictpref[strcspn(dictpref, ":")] = '\0';
+
+	// Find the location of the history file.
+	history_file = xdg_make_path(XDG_BD_STATE, "%s/%s%s", xdg_prog,
+	                             dictpref, history_file_basename);
+	free(dictpref);
+
+	if (NULL == history_file)
+	{
+		prt_error("Warning: xdg_get_home(XDG_BD_STATE) failed; "
+		          "input history will not be supported.\n");
+		history_file = strdup("/dev/null");
+	}
+
+	if (get_verbosity() == D_USER_FILES)
+		prt_error("Debug: Using history file \"%s\"\n", history_file);
 }
 
 /**
@@ -64,8 +105,8 @@ static char *complete_command(const wchar_t *input, size_t len, bool is_help)
 	const Switch **start = NULL;
 	const Switch **end;
 	const Switch **match;
-	const char *prev;
-	size_t addlen;
+	const char *prev = NULL;
+	size_t addlen = 0;
 	bool is_assignment = false; /* marking for the help facility */
 
 	if ((1 < len) && L'=' == input[len-1] && !is_help)
@@ -334,8 +375,9 @@ static unsigned char lg_complete(EditLine *el, int ch)
 		{
 			if (fchdir(cwdfd) < 0)
 			{
-				/* This shouldn't happen, unless maybe the directory to which
-				 * cwdfd reveres becomes unreadable after cwdfd is created. */
+				/* Unexpected error: may occur only if the directory
+				 * referenced by cwdfd becomes unreadable after cwdfd
+				 * has been established. */
 				printf("\nfchdir(): Cannot change directory back: %s\n",
 				       strerror(errno));
 			}
@@ -368,28 +410,22 @@ char *lg_readline(const char *mb_prompt)
 	static HistoryW *hist = NULL;
 	static HistEventW ev;
 	static EditLine *el = NULL;
-	static char *mb_line;
-
-	size_t byte_len;
-	const wchar_t *wc_line;
-	char *nl;
+	static char *mb_line = NULL;
 
 	if (!is_init)
 	{
-		size_t sz;
-#define HFILE ".lg_history"
 		is_init = true;
 
-		sz = mbstowcs(NULL, mb_prompt, 0) + 4;
+		size_t sz = mbstowcs(NULL, mb_prompt, 0) + 4;
 		wc_prompt = malloc (sz*sizeof(wchar_t));
 		mbstowcs(wc_prompt, mb_prompt, sz);
 
-		hist = history_winit();    /* Init built-in history */
+		hist = history_winit(); /* Init built-in history */
 		el = el_init("link-parser", stdin, stdout, stderr);
 		history_w(hist, &ev, H_SETSIZE, 100);
 		history_w(hist, &ev, H_SETUNIQUE, 1);
 		el_wset(el, EL_HIST, history_w, hist);
-		history_w(hist, &ev, H_LOAD, HFILE);
+		history_w(hist, &ev, H_LOAD, history_file);
 
 		el_set(el, EL_SIGNAL, 1); /* Restore tty setting on returning to shell */
 
@@ -407,14 +443,15 @@ char *lg_readline(const char *mb_prompt)
 		el_source(el, NULL); /* Source the user's defaults file. */
 	}
 
-	int numc = 1; /*  Uninitialized at libedit. */
-	wc_line = el_wgets(el, &numc);
+	int numc = 1; /* Uninitialized at libedit. */
+	const wchar_t *wc_line = el_wgets(el, &numc);
 
 	/* Received end-of-file */
 	if (numc <= 0)
 	{
 		el_end(el);
 		history_wend(hist);
+		free((void *)history_file);
 		free(wc_prompt);
 		wc_prompt = NULL;
 		hist = NULL;
@@ -426,16 +463,16 @@ char *lg_readline(const char *mb_prompt)
 	if (1 < numc)
 	{
 		history_w(hist, &ev, H_ENTER, wc_line);
-		history_w(hist, &ev, H_SAVE, HFILE);
+		history_w(hist, &ev, H_SAVE, history_file);
 	}
 	/* fwprintf(stderr, L"==> got %d %ls", numc, wc_line); */
 
-	byte_len = wcstombs(NULL, wc_line, 0) + 4;
-	free(mb_line);
+	size_t byte_len = wcstombs(NULL, wc_line, 0) + 4;
+	free(mb_line); // free previous.
 	if (byte_len == (size_t)-1)
 	{
-		printf("Error: Unable to process UTF8 in input string.\n");
-		mb_line = strdup(""); /* Just ignore it. */
+		prt_error("Error: Unable to process UTF8 in input string.\n");
+		mb_line = strdup(""); /* Just ignore the input line. */
 		return mb_line;
 	}
 	mb_line = malloc(byte_len);
@@ -443,7 +480,7 @@ char *lg_readline(const char *mb_prompt)
 
 	/* In order to be compatible with regular libedit, we have to
 	 * strip away the trailing newline, if any. */
-	nl = strchr(mb_line, '\n');
+	char *nl = strchr(mb_line, '\n');
 	if (nl) *nl = 0x0;
 
 	return mb_line;
@@ -455,7 +492,7 @@ char *lg_readline(const char *mb_prompt)
 
 char *lg_readline(const char *prompt)
 {
-	static char *pline;
+	static char *pline = NULL;
 
 	free(pline);
 	pline = readline(prompt);

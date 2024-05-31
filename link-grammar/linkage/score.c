@@ -54,15 +54,16 @@ static int unused_word_cost(Linkage lkg)
  * Computes the cost of the current parse of the current sentence
  * due to the cost of the chosen disjuncts.
  */
-static double compute_disjunct_cost(Linkage lkg)
+static float compute_disjunct_cost(Linkage lkg)
 {
 	size_t i;
-	double lcost;
+	float lcost;
 	lcost =  0.0;
 	for (i = 0; i < lkg->num_words; i++)
 	{
-		if (lkg->chosen_disjuncts[i] != NULL)
-			lcost += lkg->chosen_disjuncts[i]->cost;
+		Disjunct * dj = lkg->chosen_disjuncts[i];
+		if (dj != NULL)
+			lcost += dj->is_category ? dj->category[0].cost : dj->cost;
 	}
 	return lcost;
 }

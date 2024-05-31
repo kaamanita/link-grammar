@@ -13,10 +13,18 @@
 #ifndef _FAST_MATCH_H_
 #define _FAST_MATCH_H_
 
-#include <stddef.h> // for size_t
+#include <stddef.h>                     // for size_t
 #include "api-types.h"
-#include "link-includes.h" // for Sentence
+#include "disjunct-utils.h"             // Disjunct_struct
+#include "error.h"                      // lgdebug
+#include "link-includes.h"              // for Sentence
 #include "memory-pool.h"
+
+typedef struct
+{
+	Disjunct *d;                 /* disjuncts with a jet linkage */
+	Count_bin count;             /* the counts for that linkage */
+} match_list_cache;
 
 typedef struct Match_node_struct Match_node;
 struct Match_node_struct
@@ -46,7 +54,8 @@ struct fast_matcher_s
 fast_matcher_t* alloc_fast_matcher(const Sentence, unsigned int *[]);
 void free_fast_matcher(Sentence sent, fast_matcher_t*);
 
-size_t form_match_list(fast_matcher_t *, int, Connector *, int, Connector *, int);
+size_t form_match_list(fast_matcher_t *, int, Connector *, int, Connector *,
+                       int, match_list_cache *, match_list_cache *);
 
 /**
  * Return the match-list element at the given index.
@@ -62,6 +71,14 @@ static inline Disjunct *get_match_list_element(fast_matcher_t *ctxt, size_t mli)
 static inline void pop_match_list(fast_matcher_t *ctxt, size_t match_list_last)
 {
 	ctxt->match_list_end = match_list_last;
+#ifdef VERIFY_MATCH_LIST
+	if (verbosity_level(9))
+	{
+		if (get_match_list_element(ctxt, match_list_last) != NULL)
+			lgdebug(+9, "MATCH_LIST %9d pop\n",
+			        get_match_list_element(ctxt, match_list_last)->match_id);
+	}
+#endif
 }
 
 /**

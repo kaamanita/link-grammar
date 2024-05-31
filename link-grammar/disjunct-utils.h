@@ -19,9 +19,10 @@
 #include "connectors.h"                 // Connector
 #include "api-types.h"
 #include "api-structures.h"             // Sentence
+#include "parse/histogram.h"            // count_t
 
 // Can undefine VERIFY_MATCH_LIST when done debugging...
-#define VERIFY_MATCH_LIST
+// #define VERIFY_MATCH_LIST
 
 /* On a 64-bit machine, this struct should be exactly (6+2)*8=64 bytes long.
  * Lets try to keep it that way (for performance). */
@@ -52,13 +53,17 @@ struct Disjunct_struct
 	union
 	{
 		Disjunct *dup_table_next; /* Duplicate elimination | before pruning */
-		Disjunct *unused1;        /* Unused now | before parsing */
+		struct
+		{
+			count_t lrcount;       /* Left/right count | during counting */
+			uint32_t rcount_index; /* Right count index | set by form_match_list */
+		};
 	}; /* 8 bytes */
 
 	/* Shared by different steps. For what | when. */
 	union
 	{
-		uint32_t dup_hash;        /* Duplicate elimination | before pruning */
+		connector_hash_t dup_hash;/* Duplicate elimination | before pruning */
 		int32_t ordinal;          /* Generation mode | after d. elimination */
 	}; /* 4 bytes */
 
@@ -72,19 +77,24 @@ struct Disjunct_struct
 };
 
 /* Disjunct utilities ... */
+#ifdef USE_SAT_SOLVER
 void free_disjuncts(Disjunct *);
+#endif // USE_SAT_SOLVER
 void free_sentence_disjuncts(Sentence, bool);
 void free_categories(Sentence);
 void free_categories_from_disjunct_array(Disjunct *, unsigned int);
 unsigned int count_disjuncts(Disjunct *);
 Disjunct * catenate_disjuncts(Disjunct *, Disjunct *);
-Disjunct * eliminate_duplicate_disjuncts(Disjunct *, bool);
+unsigned int eliminate_duplicate_disjuncts(Disjunct *, bool);
 int left_connector_count(Disjunct *);
 int right_connector_count(Disjunct *);
 
 Tracon_sharing *pack_sentence_for_pruning(Sentence);
 Tracon_sharing *pack_sentence_for_parsing(Sentence);
 void free_tracon_sharing(Tracon_sharing *);
+void free_tracon_memblock(Tracon_sharing *);
+void free_saved_memblock(void *);
+
 void count_disjuncts_and_connectors(Sentence, unsigned int *, unsigned int *);
 
 /* Print disjunct/connector */

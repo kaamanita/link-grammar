@@ -1,6 +1,7 @@
 #include /any/affix-punc
 
 % Mark the first morpheme by appending STEMSUBSCR.
+% The dot is currently converted to SUBSCRIPT_MARK ('\x03').
 .=: STEMSUBSCR+;
 
 % Mark the rest of morphemes by prepending INFIXMARK
@@ -15,6 +16,13 @@
 
 
 % Anysplit parameters
+
+% A PCRE2 regex defining a character sequence that shouldn't get split.
+% The LG library must be configured with PCRE2 in order to use it. If not,
+% or if this definition is missing, a single utf8 codpoint is used  as a
+% byte sequence that should not get split.
+%#define atomic-unit "\X";       % split at grapheme boundaries.
+#define atomic-unit "\X\pM*";   % ... but include trailing mark codepoints.
 
 % Maximum number of word partitions
 % FYI: 3 barely works, 4 and higher mostly do not work.
@@ -35,14 +43,24 @@
 % The word parts currently contain at least one character
 % (null morphemes are not supported).
 
-% Regex to match the prefix
+% Regex to match the first, middle and last parts of word partitions.
+% If one of them don't match, the candidate alternative is rejected.
+% Currently, REGPRE is always used to match the first partition (or the
+% whole word for an alternative with no partitioning), and REGSUF always
+% for the last partition.
+
+% These regexes use the PCRE2 pattern syntax.
+% The LG library must be configured with PCRE2 in order to use them.
+% For ASCII input, the empty regexes can be used.
+% See the comments in 4.0.affix.
+
 "" : REGPRE+;
 
-% Regex to match the middle parts (not including the prefix or the suffix)
-"": REGMID+;
+% Regex to match the middle parts.
+"" : REGMID+;
 %".{2,}": REGMID+;
 
-% Regex to match the suffix
-"": REGSUF+;
+% Regex to match the suffix.
+"" : REGSUF+;
 
-% End of Anysplit parameters
+% End of Anysplit parameters.

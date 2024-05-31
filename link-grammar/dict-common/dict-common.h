@@ -14,68 +14,92 @@
 #ifndef _LG_DICT_COMMON_H_
 #define  _LG_DICT_COMMON_H_
 
+#include <limits.h>                     // INT_MAX
+
 #include "api-types.h"                  // pp_knowledge
 #include "connectors.h"                 // ConTable
 #include "dict-defines.h"
 #include "dict-structures.h"
+#include "dict-ram/dict-ram.h"
 #include "memory-pool.h"                // Pool_desc
 #include "utilities.h"                  // locale_t
 
-#define EMPTY_CONNECTOR "ZZZ"
+
+// Dict may have `#define empty-connector ZZZ` in it.
+#define EMPTY_CONNECTOR "empty-connector"
 #define UNLIMITED_CONNECTORS_WORD ("UNLIMITED-CONNECTORS")
 #define LIMITED_CONNECTORS_WORD ("LENGTH-LIMIT-")
 #define IS_GENERATION(dict) (dict->category != NULL)
 
-/* If the maximum disjunct cost is yet uninitialized, the value defined in the
- * dictionary (or if not defined then DEFAULT_MAX_DISJUNCT_COST) is used. */
-static const double UNINITIALIZED_MAX_DISJUNCT_COST = -10000.0;
-static const double DEFAULT_MAX_DISJUNCT_COST = 2.7;
+/* If the maximum disjunct cost is not initialized, the value defined
+ * in the dictionary is used. If not defined, then DEFAULT_MAX_DISJUNCT_COST
+ * is used. */
+static const float UNINITIALIZED_MAX_DISJUNCT_COST = -10000.0f;
+static const float DEFAULT_MAX_DISJUNCT_COST = 2.7f;
+static const int UNINITIALIZED_MAX_DISJUNCTS = INT_MAX;
+
 /* We need some of these as literal strings. */
-#define LG_DISJUNCT_COST                        "max-disjunct-cost"
 #define LG_DICTIONARY_VERSION_NUMBER            "dictionary-version-number"
 #define LG_DICTIONARY_LOCALE                    "dictionary-locale"
+#define LG_DISABLE_DOWNCASING                   "disable-downcasing"
+#define LG_DISJUNCT_COST                        "max-disjunct-cost"
+#define LG_MAX_DISJUNCTS                        "max-disjuncts"
 
 /* Forward decls */
 typedef struct Afdict_class_struct Afdict_class;
 typedef struct Regex_node_s Regex_node;
-
-typedef struct X_node_struct X_node;
-struct X_node_struct
-{
-	const char * string;       /* the word itself */
-	Exp * exp;
-	X_node *next;
-	const Gword *word;         /* originating Wordgraph word */
-};
 
 /* The regexes are stored as a linked list of the following nodes. */
 struct Regex_node_s
 {
 	const char *name;/* The identifying name of the regex */
 	char *pattern;   /* The regular expression pattern */
-	bool neg;        /* Negate the match */
 	void *re;        /* The compiled regex. void * to avoid
 	                    having re library details invading the
 	                    rest of the LG system; regex-morph.c
 	                    takes care of all matching.
 	                  */
 	Regex_node *next;
+	bool neg;        /* Negate the match */
+	int capture_group;  /* Capture group number (-1 if none) for ovector */
 };
+
+static inline Regex_node *regex_new(const char *name, const char *pattern)
+{
+	Regex_node *rn = (Regex_node *)malloc(sizeof(Regex_node));
+
+	rn->name = name;
+	rn->pattern = strdup(pattern);
+	rn->re = NULL;
+	rn->neg = false;
+	rn->capture_group = -1;
+	rn->next = NULL;
+
+	return rn;
+}
 
 struct Afdict_class_struct
 {
-	size_t mem_elems;     /* number of memory elements allocated */
-	size_t length;        /* number of strings */
-	char const ** string;
+	uint16_t mem_elems;     /* number of memory elements allocated */
+	uint16_t length;        /* number of elements */
+	uint16_t Nregexes;      /* number of regexes */
+	const char ** string;   /* indexed by [0..length) */
+	Regex_node ** regex;    /* indexed by [0..Nregexes) */
 };
 
 #define MAX_TOKEN_LENGTH 250     /* Maximum number of chars in a token */
 #define IDIOM_LINK_SZ 16
 
-#ifdef HAVE_SQLITE3
-#define IS_DB_DICT(dict) (NULL != dict->db_handle)
+#if defined HAVE_SQLITE3 || defined HAVE_ATOMESE
+#define IS_DYNAMIC_DICT(dict) dict->dynamic_lookup
 #else
-#define IS_DB_DICT(dict) false
+#define IS_DYNAMIC_DICT(dict) false
+#endif /* HAVE_SQLITE3 or HAVE_ATOMESE */
+
+#ifdef HAVE_SQLITE3
+#define IS_SQL_DICT(dict) (NULL != dict->db_handle)
+#else
+#define IS_SQL_DICT(dict) false
 #endif /* HAVE_SQLITE3 */
 
 /* "#define name value" */
@@ -85,7 +109,7 @@ typedef struct
 	const char **name;
 	const char **value;
 	unsigned int size;                 /* Allocated value array size */
-} define_s;
+} dfine_s;
 
 typedef struct
 {
@@ -103,16 +127,36 @@ struct Dictionary_s
 	const char * lang;
 	const char * version;
 	const char * locale;    /* Locale name */
-	double default_max_disjunct_cost;
 	locale_t     lctype;    /* Locale argument for the *_l() functions */
-	int          num_entries;
-	define_s     define;    /* Name-value definitions */
 
+	int          num_entries;
+	dfine_s      dfine;    /* Name-value definitions */
+
+	/* Parse options for which defaults are provided by the dictionary. */
+	float        default_max_disjunct_cost; /* Dictionary-specific scale. */
+	int          default_max_disjuncts;     /* Max number of disjuncts. */
+
+	const char * zzz_connector;
+
+	/* Dictionary-defined parameters. Control behavior of how
+	 * words are looked up in the dictionary. */
 	bool         use_unknown_word;
 	bool         unknown_word_defined;
 	bool         left_wall_defined;
 	bool         right_wall_defined;
 	bool         shuffle_linkages;
+	bool         dynamic_lookup;
+	bool         disable_downcasing;
+
+	/* Duplicate words are disallowed in 4.0.dict unless
+	 * allow_duplicate_words is defined to "true".
+	 * Duplicate idioms are allowed, unless the "test" parse option
+	 * is set to "disallow-dup-idioms" (listing them for debug).
+	 * If these variables are 0, they get their allow/disallow values
+	 * when the first duplicate word/idiom is encountered.
+	 * 0: not set; 1: allow; -1: disallow */
+	int8_t       allow_duplicate_words;
+	int8_t       allow_duplicate_idioms;
 
 	Dialect *dialect;                  /* "4.0.dialect" info */
 	expression_tag dialect_tag;        /* Expression dialect tag info */
@@ -132,21 +176,30 @@ struct Dictionary_s
 #ifdef HAVE_SQLITE3
 	void *          db_handle;         /* database handle */
 #endif
+#ifdef HAVE_ATOMESE
+	void *          as_server;         /* cogserver connection */
+#endif
 
 	void (*insert_entry)(Dictionary, Dict_node *, int);
+
+	void (*start_lookup)(Dictionary, Sentence);
+	void (*end_lookup)(Dictionary, Sentence);
 	Dict_node* (*lookup_list)(Dictionary, const char*);
 	Dict_node* (*lookup_wild)(Dictionary, const char*);
 	void (*free_lookup)(Dictionary, Dict_node*);
-	bool (*lookup)(Dictionary, const char*);
+	bool (*exists_lookup)(Dictionary, const char*);
+
+	void (*clear_cache)(Dictionary);
 	void (*close)(Dictionary);
 
-	pp_knowledge  * base_knowledge;    /* Core post-processing rules */
-	pp_knowledge  * hpsg_knowledge;    /* Head-Phrase Structure rules */
 	String_set *    string_set;        /* Set of link names in the dictionary */
 	Word_file *     word_file_header;
 	ConTable        contable;
+	Pool_desc *     Exp_pool;
 
-	Pool_desc  * Exp_pool;
+	/* Post-processing */
+	pp_knowledge  * base_knowledge;    /* Core post-processing rules */
+	pp_knowledge  * hpsg_knowledge;    /* Head-Phrase Structure rules */
 
 	/* Sentence generation */
 	unsigned int num_categories;
@@ -154,26 +207,14 @@ struct Dictionary_s
 	Category * category;      /* Word lists - indexed by category number */
 	bool generate_walls;      /* Generate walls too for wildcard words */
 
-	/* Private data elements that come in play only while the
-	 * dictionary is being read, and are not otherwise used.
-	 */
-	const char    * input;
-	const char    * pin;
-	bool            recursive_error;
-	bool            is_special;
-	int             already_got_it; /* For char, but needs to hold EOF */
+	/* File I/O cruft */
 	int             line_number;
 	char            current_idiom[IDIOM_LINK_SZ];
-	char            token[MAX_TOKEN_LENGTH];
 };
 
 bool is_stem(const char *);
 bool is_wall(const char *);
 bool is_macro(const char *);
-
-Exp *Exp_create(Pool_desc *);
-Exp *Exp_create_dup(Pool_desc *, Exp *);
-Exp *make_unary_node(Pool_desc *, Exp *);
 
 bool dictionary_generation_request(const Dictionary);
 
@@ -181,11 +222,23 @@ bool dictionary_generation_request(const Dictionary);
  * and pretty much no one else. If you are not the tokenizer, you
  * probably don't need these. */
 bool dict_has_word(const Dictionary dict, const char *);
-void add_empty_word(Sentence, X_node *);
 
 static inline const char *subscript_mark_str(void)
 {
 	static const char sm[] = { SUBSCRIPT_MARK, '\0' };
 	return sm;
 }
+
+/**
+ * Get the subscript of the given word.
+ * In case of more than one subscript, return the last subscript.
+ * The returned value constness is the same as the argument.
+ */
+static inline char *get_word_subscript(const char *word)
+{
+	return (char *)strrchr(word, SUBSCRIPT_MARK); /* (char *) for MSVC */
+}
+#define get_word_subscript(word) _Generic((word), \
+	const char * : (const char *)(get_word_subscript)((word)), \
+	char *       :               (get_word_subscript)((word)))
 #endif /* _LG_DICT_COMMON_H_ */

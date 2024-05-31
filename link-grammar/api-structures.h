@@ -11,24 +11,22 @@
 /*                                                                       */
 /*************************************************************************/
 
-/* This file is somewhat misnamed, as everything here defines the
- * link-private, internal-use-only "api", which is subject to change
- * from revision to revision. No external code should link to this
- * stuff.
- */
-
-/*****************************************************************************
-*
-* NOTE: There are five basic "types" used within the link parser.  These are:
-*
-*       Dictionary, Parse_Options, Sentence, Linkage, PostProcessor
-*
-* To make the use of the API simpler, each of these is typedef'ed as a pointer
-* to a data structure.  As a result, some of the code may look a little funny,
-* since it uses pointers in a way that is syntactically inconsistent.  After
-* working a bit with these basic types enough, this should not be confusing.
-*
-******************************************************************************/
+/**********************************************************************
+ *
+ * This file is misnamed, as all of these structures are private to
+ * the implementation. These are all subject to change from revision
+ * to revision. No external code should link to this stuff.
+ *
+ * There are five data types used by the public link-grammar library
+ * API. These are:
+ *
+ *    Dictionary, Parse_Options, Sentence, Linkage, PostProcessor
+ *
+ * To make the API simpler, each of these is typedef'ed as a pointer
+ * to a data structure.  If you're not used to this, some of the code
+ * may look strange, since it's not plain that these types are pointers.
+ *
+ *********************************************************************/
 
 #ifndef _API_STRUCTURESH_
 #define _API_STRUCTURESH_
@@ -51,8 +49,18 @@
 
 /* Performance tuning.
  * For short sentences, encoding takes more resources than it saves. If
- * this overhead is improved, this limit can be set lower. */
-#define SENTENCE_MIN_LENGTH_TRAILING_HASH 6
+ * this overhead is improved, this limit can be set lower.
+ *
+ * Update: For a consistent linkage deduplication, encoding (which
+ * included tracon sharing) should always be done. And now the overhead
+ * is negligible.
+ *
+ * Note: setting this to 254(MAX_SENTENCE) disables some of the more
+ * subtle tracon encoding code, and thus can be used to create a
+ * baseline parse, skipping that code. This can be done using
+ * -test="min-len-encoding:254" (see sentence.c).
+ */
+#define SENTENCE_MIN_LENGTH_TRAILING_HASH 0
 
 /* Pruning per null-count is costly for sentences whose parsing time
  * is relatively small. If a better pruning per null-count is implemented,
@@ -96,7 +104,8 @@ struct Parse_Options_s
 #endif
 
 	/* Options governing the parser internals operation */
-	double disjunct_cost;  /* Max disjunct cost to allow */
+	int max_disjuncts;     /* Max number of disjuncts. */
+	float disjunct_cost;   /* Max disjunct cost to allow */
 	short min_null_count;  /* The minimum number of null links to allow */
 	short max_null_count;  /* The maximum number of null links to allow */
 	bool islands_ok;       /* If TRUE, then linkages with islands
@@ -104,15 +113,15 @@ struct Parse_Options_s
 	                          will be generated (default=FALSE) */
 	size_t short_length;   /* Links that are limited in length can be
 	                          no longer than this.  Default = 16 */
-	bool all_short;        /* If true, there can be no connectors that are exempt */
+	bool all_short;        /* If true, no connectors that are exempt. */
 	bool repeatable_rand;  /* Reset rand number gen after every parse. */
 
 	/* Options governing post-processing */
 	bool perform_pp_prune; /* Perform post-processing-based pruning TRUE */
 	size_t twopass_length; /* Min sent length for two-pass post processing */
-	Cost_Model cost_model; /* For sorting linkages after parsing. */
 
 	/* Options governing the generation of linkages. */
+	Cost_Model cost_model; /* For sorting linkages after parsing. */
 	size_t linkage_limit;  /* The maximum number of linkages processed 100 */
 	bool display_morphology;/* If true, print morpho analysis of words TRUE */
 
@@ -135,12 +144,14 @@ struct Sentence_s
 	Word  *word;                /* Array of words after tokenization */
 	String_set *   string_set;  /* Used for assorted strings */
 	Pool_desc * Match_node_pool;
-	Pool_desc * Table_connector_pool; /* Count memoizing memory pool */
+	Pool_desc * Table_tracon_pool; /* Count memoizing memory pool */
 	Pool_desc * wordvec_pool;   /* For tracon-word zero-count memoizing */
 	Pool_desc * Exp_pool;
 	Pool_desc * X_node_pool;
 	Pool_desc * Disjunct_pool;
 	Pool_desc * Connector_pool;
+	Pool_desc * Clause_pool;
+	Pool_desc * Tconnector_pool;
 
 	/* Connector encoding, packing & sharing. */
 	size_t min_len_encoding;     /* Encode from this sentence length. */
@@ -160,6 +171,7 @@ struct Sentence_s
 	/* Parse results */
 	int    num_linkages_found;  /* Total number before postprocessing.  This
 	                               is returned by the do_count() function */
+	bool   overflowed;          /* True, if counting overflowed. */
 	size_t num_linkages_alloced;/* Total number of linkages allocated.
 	                               the number post-processed might be fewer
 	                               because some are non-canonical */

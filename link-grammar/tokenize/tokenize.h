@@ -18,9 +18,9 @@
 
 bool separate_sentence(Sentence, Parse_Options);
 bool sentence_in_dictionary(Sentence);
-bool flatten_wordgraph(Sentence, Parse_Options);
-void wordgraph_delete(Sentence);
+void flatten_wordgraph(Sentence, Parse_Options);
 void tokenization_done(Sentence, Gword *);
+void free_words(Sentence);
 
 void altappend(Sentence, const char ***, const char *);
 bool word0_set(Sentence, char *, Parse_Options);

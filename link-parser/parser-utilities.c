@@ -11,15 +11,12 @@
 /*                                                                         */
 /***************************************************************************/
 
-/* Used for terminal resizing */
-#ifndef _WIN32
-#endif /* _WIN32 */
-
 #ifdef _WIN32
 #include <windows.h>
 #include <wchar.h>
 #include <io.h>
-#include <shellapi.h>                    /* CommandLineToArgvW() */
+#include <shellapi.h>                   // CommandLineToArgvW()
+#include <errhandlingapi.h>             // GetLastError()
 #else
 #include <pwd.h>
 #include <signal.h>
@@ -34,8 +31,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if !HAVE_ASPRINTF
+#include <stdarg.h>
+#endif // !HAVE_ASPRINTF
 
 #include "parser-utilities.h"
+#include "lg_readline.h"
 
 /**
  * Expand an initial '~' to home directory.
@@ -106,18 +107,22 @@ char *expand_homedir(const char *filename)
 }
 
 #ifdef _WIN32
+#define INPUT_UTF16_SIZE 4096
 /**
  * Get a line from the console in UTF-8.
  * This function bypasses the code page conversion and reads Unicode
  * directly from the console.
- * @return An input line from the console in UTF-8 encoding.
+ * @param inbuf Buffer for the returned line (in UTF-8 encoding).
+ * @param inbuf_size The size of this buffer.
+ * @return -1: error; 0: EOF; 1: Success.
  */
-char *get_console_line(void)
+int get_console_line(char *inbuf, int inbuf_size)
 {
 	static HANDLE console_handle = NULL;
-	wchar_t winbuf[MAX_INPUT_LINE];
-	/* Worst-case: 4 bytes per UTF-8 char, 1 UTF-8 char per wchar_t char. */
-	static char utf8inbuf[MAX_INPUT_LINE*4+1];
+	wchar_t winbuf[INPUT_UTF16_SIZE];
+	static bool eof;
+
+	if (eof) return 0;
 
 	if (NULL == console_handle)
 	{
@@ -125,38 +130,52 @@ char *get_console_line(void)
 		                             NULL, OPEN_EXISTING, 0, NULL);
 		if (!console_handle || (INVALID_HANDLE_VALUE == console_handle))
 		{
-			prt_error("Error: CreateFileA CONIN$: Error %d.\n", (int)GetLastError());
-			return NULL;
+			snprintf(inbuf, inbuf_size, "CreateFileA CONIN$: Error %lu",
+			         GetLastError());
+			return -1;
 		}
 	}
 
 	DWORD nchar;
-	if (!ReadConsoleW(console_handle, &winbuf, MAX_INPUT_LINE-sizeof(wchar_t), &nchar, NULL))
+	if (!ReadConsoleW(console_handle, &winbuf, INPUT_UTF16_SIZE-1, &nchar, NULL))
 	{
-		prt_error("Error: ReadConsoleW: Error %d\n", (int)GetLastError());
-		return NULL;
+		snprintf(inbuf, inbuf_size, "ReadConsoleW: Error %lu\n", GetLastError());
+		return -1;
 	}
-	winbuf[nchar] = L'\0';
+	winbuf[nchar] = L'\0'; /* nchar is always <= INPUT_UTF16_SIZE-1. */
 
-	nchar = WideCharToMultiByte(CP_UTF8, 0, winbuf, -1, utf8inbuf,
-	                            sizeof(utf8inbuf), NULL, NULL);
+	nchar = WideCharToMultiByte(CP_UTF8, 0, winbuf, -1, inbuf,
+	                            inbuf_size, NULL, NULL);
 	if (0 == nchar)
 	{
-		prt_error("Error: WideCharToMultiByte CP_UTF8 failed: Error %d.\n",
-		          (int)GetLastError());
-		return NULL;
+		DWORD err = GetLastError();
+		if (err == ERROR_INSUFFICIENT_BUFFER)
+			snprintf(inbuf, inbuf_size, "Input line too long (>%d)", inbuf_size-3);
+		else
+			snprintf(inbuf, inbuf_size, "WideCharToMultiByte CP_UTF8: Error %lu",
+			         err);
+		return -1;
 	}
 
 	/* Make sure we don't have conversion problems, by searching for U+FFFD. */
-	const char *invalid_char  = strstr(utf8inbuf, "\xEF\xBF\xBD");
+	const char *invalid_char  = strstr(inbuf, "\xEF\xBF\xBD");
 	if (NULL != invalid_char)
-		prt_error("Warning: Invalid input character encountered.\n");
+	{
+		prt_error("Error: Unable to process UTF8 in input string.\n");
+		inbuf[0] = '\0'; /* Just ignore the input line. */
+	}
 
 	/* ^Z is read as a character. Convert it to an EOF indication. */
-	if ('\x1A' == utf8inbuf[0]) /* Only handle it at line start. */
-		return NULL;
+	char *ctrl_z_position = strchr(inbuf, '\x1A');
+	if (ctrl_z_position != NULL)
+	{
+		if (ctrl_z_position == inbuf) return 0;
+		*ctrl_z_position = '\n';
+		eof = true;
+		return 1;
+	}
 
-	return utf8inbuf;
+	return 1;
 }
 
 static int console_input_cp;
@@ -182,7 +201,7 @@ static BOOL CtrlHandler(DWORD fdwCtrlType)
  * Set the output conversion attributes for transparency.
  * This way UTF-8 output doesn't pass any conversion.
  */
-void win32_set_utf8_output(void)
+static void win32_set_utf8_output(void)
 {
 	if (-1 == _setmode(fileno(stdout), _O_BINARY))
 	{
@@ -202,14 +221,14 @@ void win32_set_utf8_output(void)
 	 * command "chcp 65001" before invoking link-parser. */
 	if (!SetConsoleCP(CP_UTF8))
 	{
-		prt_error("Warning: Cannot set input codepage %d (error %d).\n",
-			CP_UTF8, (int)GetLastError());
+		prt_error("Warning: Cannot set input codepage %d (error %lu).\n",
+			CP_UTF8, GetLastError());
 	}
 	/* For Console output. */
 	if (!SetConsoleOutputCP(CP_UTF8))
 	{
-		prt_error("Warning: Cannot set output codepage %d (error %d).\n",
-			CP_UTF8, (int)GetLastError());
+		prt_error("Warning: Cannot set output codepage %d (error %lu).\n",
+			CP_UTF8, GetLastError());
 	}
 }
 
@@ -256,7 +275,7 @@ int lg_isatty(int fd)
 
 	if (!GetFileInformationByHandleEx(fh, FileNameInfo, pfni, sizeof(buf)))
 	{
-		printf("GetFileInformationByHandleEx: Error %d\n", (int)GetLastError());
+		printf("GetFileInformationByHandleEx: Error %lu\n", GetLastError());
 		goto no_tty;
 	}
 
@@ -264,9 +283,9 @@ int lg_isatty(int fd)
 	pfni->FileName[pfni->FileNameLength / sizeof (WCHAR)] = L'\0';
 
 	/* Now check the name pattern.  The filename of a Cygwin pseudo tty pipe
-	   looks like this:
+	   matches this regex:
 
-			 \{cygwin,msys}-%16llx-pty%d-{to,from}-master
+			 ^\\(cygwin|msys)-{[a-z\d]}16-pty\d+-(to|from)-master
 
 		%16llx is the hash of the Cygwin installation, (to support multiple
 		parallel installations), %d id the pseudo tty number, "to" or "from"
@@ -279,11 +298,11 @@ int lg_isatty(int fd)
 		cp = wcschr(cp + 26, '-');
 		if (!cp)
 			goto no_tty;
-		if (!wcscmp(cp, L"-from-master") || !wcscmp(cp, L"-to-master"))
+		if (!wcsncmp(cp, L"-from-master", 12) || !wcsncmp(cp, L"-to-master", 10))
 			return 1;
 	}
 no_tty:
-	errno = EINVAL;
+	errno = ENOTTY;
 	return 0;
 }
 
@@ -303,7 +322,7 @@ static void argv2utf8_free(void)
 /**
  * Convert argv from the startup locale to UTF-8.
  */
-char **argv2utf8(int argc)
+static char **argv2utf8(int argc)
 {
 	char **nargv = malloc(argc * sizeof(char *));
 	LPWSTR *warglist = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -318,13 +337,12 @@ char **argv2utf8(int argc)
 		n = WideCharToMultiByte(CP_UTF8, 0, warglist[i], -1, nargv[i], n, NULL, NULL);
 		if (0 == n)
 		{
-			prt_error("Error: WideCharToMultiByte CP_UTF8 failed: Error %d.\n",
-			         (int)GetLastError());
+			prt_error("Error: WideCharToMultiByte CP_UTF8 failed: Error %lu.\n",
+			         GetLastError());
 			return NULL;
 		}
 	}
 	LocalFree(warglist);
-
 
 	utf8_argv = nargv;
 	utf8_argc = argc;
@@ -332,7 +350,115 @@ char **argv2utf8(int argc)
 
 	return nargv;
 }
+
+static bool running_under_cygwin;
+
+char **ms_windows_setup(int argc)
+{
+	/* If compiled with MSVC/MinGW, we still support running under Cygwin.
+	 * This is done by checking running_under_cygwin to resolve
+	 * incompatibilities. */
+	const char *ostype = getenv("OSTYPE");
+	if ((NULL != ostype) && (0 == strcmp(ostype, "cygwin")))
+		running_under_cygwin = true;
+
+	/* argv encoding is in the current locale. */
+	char **argv = argv2utf8(argc);
+	if (NULL == argv)
+	{
+		prt_error("Fatal error: Unable to parse command line\n");
+		exit(-1);
+	}
+
+	win32_set_utf8_output();
+
+	return argv;
+}
 #endif /* _WIN32 */
+
+/*
+ * @return -1: error; 0: EOF; 1: Success.
+ */
+static int fgets_with_check(char *inbuf, unsigned int inbuf_size, FILE *fh)
+{
+	const char *rc = fgets(inbuf, inbuf_size, fh);
+	if (rc == NULL)
+	{
+		/* EOF or error */
+		if (!ferror(fh)) return 0;
+		snprintf(inbuf, inbuf_size, "fgets(): %s", strerror(errno));
+		return -1;
+	}
+
+	size_t len = strlen(inbuf);
+	if ((len == inbuf_size -1) && inbuf[len -2] != '\n')
+	{
+		snprintf(inbuf, inbuf_size, "Input line too long (>%u).", inbuf_size-2);
+		return -1;
+	}
+
+	return 1;
+}
+
+static int get_terminal_line(const char *uprompt, char **buf,
+                             unsigned int bufsize, FILE *in, FILE *out, bool tty)
+{
+	int rc;
+
+#ifdef HAVE_EDITLINE
+	*buf = lg_readline(uprompt);
+	rc = (*buf != NULL);
+#else
+	fprintf(out, "%s", uprompt);
+	fflush(out);
+#ifdef _WIN32
+	if (!running_under_cygwin && tty)
+	{
+		rc = get_console_line(*buf, bufsize);
+	}
+	else
+#endif /* _WIN32 */
+	{
+		rc = fgets_with_check(*buf, bufsize, in);
+	}
+#endif /* HAVE_EDITLINE */
+
+	return rc;
+}
+
+/*
+ * Get an input line. Notify errors.
+ *
+ * @param in: Input file handle.
+ * @param out: Output file handle.
+ * @param tty \c false: from file; \c true: from terminal.
+ * @return \c true if successful, \c false on error.
+ */
+bool get_line(const char *uprompt, char **buf, unsigned int bufsize,
+                     FILE *in, FILE *out, bool tty)
+{
+	int rc;
+
+	if ((in != stdin) || !tty)
+	{
+		/* Get input from a file. */
+		rc = fgets_with_check(*buf, bufsize, in);
+	}
+	else
+	{
+		/* If we are here, the input is from a terminal. */
+		rc = get_terminal_line(uprompt, buf, bufsize, in, out, tty);
+	}
+
+	if (rc == 0) return false; /* EOF */
+	if (rc == -1)
+	{
+		prt_error("Fatal error: %s\n", *buf);
+		return false;
+	}
+
+	return true;
+}
 
 static unsigned int screen_width = INITIAL_SCREEN_WIDTH;
 /**
@@ -443,6 +569,7 @@ int __mingw_vfprintf (FILE * __restrict__ stream, const char * __restrict__ fmt,
 	int n = vsnprintf(NULL, 0, fmt, vl);
 	if (0 > n) return n;
 	char *buf = malloc(n+1);
+	if (NULL == buf) return -1;
 	n = vsnprintf(buf, n+1, fmt, vl);
 	if (0 > n)
 	{
@@ -460,3 +587,38 @@ int __mingw_vprintf (const char * __restrict__ fmt, va_list vl)
 	return __mingw_vfprintf(stdout, fmt, vl);
 }
 #endif /* __MINGW32__ */
+
+#if !HAVE_ASPRINTF
+int vasprintf(char ** restrict buf, const char * restrict fmt, va_list vl)
+{
+	va_list vl_copy;
+	va_copy(vl_copy, vl);
+
+	int n = vsnprintf(NULL, 0, fmt, vl);
+	if (n < 0) {
+		va_end(vl_copy);
+		return n;
+	}
+
+	*buf = malloc(n + 1);
+	if (*buf == NULL) {
+		va_end(vl_copy);
+		return -1;
+	}
+
+	n = vsnprintf(*buf, n + 1, fmt, vl_copy);
+	if (n < 0) free(*buf);
+
+	va_end(vl_copy);
+	return n;
+}
+
+int asprintf(char ** restrict buf, const char * restrict fmt, ...)
+{
+	va_list args;
+	va_start(args, fmt);
+	int result = vasprintf(buf, fmt, args);
+	va_end(args);
+	return result;
+}
+#endif /* !HAVE_ASPRINTF */

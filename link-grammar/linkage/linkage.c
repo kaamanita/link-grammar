@@ -51,7 +51,7 @@ static void add_morpheme_unmarked(Sentence sent, char *join_buff,
                                   const char *wm, Morpheme_type mt)
 {
 	const char infix_mark = INFIX_MARK(sent->dict->affix_table);
-	const char *sm =  strrchr(wm, SUBSCRIPT_MARK);
+	const char *sm =  get_word_subscript(wm);
 
 	if (NULL == sm) sm = (char *)wm + strlen(wm);
 
@@ -76,7 +76,7 @@ static const char *join_null_word(Sentence sent, Gword **wgp, size_t count)
 		join_len += strlen(wgp[i]->subword);
 
 	join_buff = alloca(join_len+1);
-	memset(join_buff, '\0', join_len+1);
+	join_buff[0] = 0;
 
 	for (i = 0; i < count; i++)
 		add_morpheme_unmarked(sent, join_buff, wgp[i]->subword,
@@ -101,13 +101,13 @@ static Gword *wordgraph_null_join(Sentence sent, Gword **start, Gword **end)
 	size_t join_len = 0;
 
 	for (w = start; w <= end; w++) join_len += strlen((*w)->subword);
-	usubword = calloc(join_len+1, 1); /* zeroed out */
+	usubword = alloca(join_len+1);
+	usubword[0] = 0;
 
 	for (w = start; w <= end; w++)
 		add_morpheme_unmarked(sent, usubword, (*w)->subword, (*w)->morpheme_type);
 
 	new_word = gword_new(sent, usubword);
-	free(usubword);
 	new_word->status |= WS_PL;
 	new_word->label = "NJ";
 	new_word->null_subwords = NULL;
@@ -127,16 +127,15 @@ static Gword *wordgraph_null_join(Sentence sent, Gword **start, Gword **end)
  * Add a display wordgraph placeholder for a combined morpheme with links
  * that are not discardable.
  * This is needed only when hiding morphology. This is a kind of a hack.
- * It it is not deemed nice, the "hide morphology" mode should just not be
+ * If it is not deemed nice, the "hide morphology" mode should just not be
  * used for languages with morphemes which have links that cannot be
  * discarded on that mode (like Hebrew).
- * Possible FIXME: Currently it is also used by w/ in English.
  */
 static Gword *wordgraph_link_placeholder(Sentence sent, Gword *w)
 {
 	Gword *new_word;
 
-	new_word = gword_new(sent, "");
+	new_word = gword_new(sent, "PLACE_HOLDER");
 	new_word->status |= WS_PL;
 	new_word->label = "PH";
 	new_word->start = w->start;
@@ -465,9 +464,7 @@ static void compute_chosen_words(Sentence sent, Linkage linkage,
 		else
 		{
 			/* This word has a linkage. */
-
 			/* TODO: Suppress "virtual-morphemes", currently the dictcap ones. */
-			char *sm;
 
 			t = cdj->word_string;
 			/* Print the subscript, as in "dog.n" as opposed to "dog". */
@@ -478,11 +475,11 @@ static void compute_chosen_words(Sentence sent, Linkage linkage,
 			}
 			else
 			{
-				/* Get rid of those ugly "I" */
+				/* Get rid of those ugly ".I" */
 				if (is_idiom_word(t))
 				{
 					s = strdupa(t);
-					sm = strrchr(s, SUBSCRIPT_MARK); /* Possible double subscript. */
+					char *sm = (char *)get_word_subscript(s);
 					UNREACHABLE(NULL == sm); /* We know it has a subscript. */
 					*sm = '\0';
 					t = string_set_add(s, sent->string_set);
@@ -536,8 +533,7 @@ static void compute_chosen_words(Sentence sent, Linkage linkage,
 						 * words with and without subscripts. */
 
 						const char subscript_sep_str[] = { SUBSCRIPT_SEP, '\0'};
-						char *join = calloc(join_len + 1, 1); /* zeroed out */
-
+						char *join = alloca(join_len + 1);
 						join[0] = '\0';
 
 						/* 1. Join base words. (Could just use the unsplit_word.) */
@@ -570,7 +566,8 @@ static void compute_chosen_words(Sentence sent, Linkage linkage,
 								}
 							}
 
-							sm =  strchr(cdjp[i+m]->word_string, SUBSCRIPT_MARK);
+							const char *sm =
+								get_word_subscript(cdjp[i+m]->word_string);
 
 							if (NULL != sm)
 							{
@@ -615,7 +612,6 @@ static void compute_chosen_words(Sentence sent, Linkage linkage,
 
 						gwordlist_append(&n_lwg_path, w->unsplit_word);
 						t = string_set_add(join, sent->string_set);
-						free(join);
 
 						i += mcnt-1;
 					}
@@ -633,7 +629,7 @@ static void compute_chosen_words(Sentence sent, Linkage linkage,
 			{
 
 				s = strdupa(t);
-				sm = strrchr(s, SUBSCRIPT_MARK);
+				char *sm = get_word_subscript(s);
 				if (sm) *sm = SUBSCRIPT_DOT;
 
 				if ((!(w->status & WS_GUESS) && (w->status & WS_INDICT))
@@ -695,12 +691,15 @@ static void compute_chosen_words(Sentence sent, Linkage linkage,
 	 * to facilitate using diff on sentence batch runs. */
 	if (test_enabled("removeZZZ"))
 	{
-		for (i=0; i<linkage->num_links; i++)
+		if (sent->dict->zzz_connector)
 		{
-			Link *lnk = &(linkage->link_array[i]);
+			for (i=0; i<linkage->num_links; i++)
+			{
+				Link *lnk = &(linkage->link_array[i]);
 
-			if (0 == strcmp("ZZZ", lnk->link_name))
-				chosen_words[lnk->rw] = NULL;
+				if (0 == strcmp(sent->dict->zzz_connector, lnk->link_name))
+					chosen_words[lnk->rw] = NULL;
+			}
 		}
 	}
 
@@ -769,7 +768,7 @@ void compute_generated_words(Sentence sent, Linkage linkage)
 		}
 		else
 		{
-			assert(cdj->num_categories > 0, "0 categories in disjunct");
+			assert(cdj->num_categories > 0, "zero categories in disjunct");
 			word = linkage_get_disjunct_str(linkage, i);
 			size_t len = strlen(word) + sizeof("<>");
 			char *disjunct_string = alloca(len);
@@ -878,24 +877,20 @@ const char ** linkage_get_words(const Linkage linkage)
 
 const char * linkage_get_disjunct_str(const Linkage linkage, WordIdx w)
 {
-	Disjunct *dj;
-
 	if (NULL == linkage) return "";
-	if (NULL == linkage->disjunct_list_str)
-	{
-		lg_compute_disjunct_strings(linkage);
-	}
-
 	if (linkage->num_words <= w) return NULL; /* bounds-check */
 
 	/* dj will be null if the word wasn't used in the parse. */
-	dj = linkage->chosen_disjuncts[w];
+	Disjunct *dj = linkage->chosen_disjuncts[w];
 	if (NULL == dj) return "";
+
+	if (NULL == linkage->disjunct_list_str)
+		lg_compute_disjunct_strings(linkage);
 
 	return linkage->disjunct_list_str[w];
 }
 
-double linkage_get_disjunct_cost(const Linkage linkage, WordIdx w)
+float linkage_get_disjunct_cost(const Linkage linkage, WordIdx w)
 {
 	Disjunct *dj;
 
@@ -904,8 +899,13 @@ double linkage_get_disjunct_cost(const Linkage linkage, WordIdx w)
 	dj = linkage->chosen_disjuncts[w];
 
 	/* dj may be null, if the word didn't participate in the parse. */
-	if (dj) return dj->cost;
-	return 0.0;
+	if (NULL == dj)
+		return 0.0;
+
+	if (dj->is_category)
+		return dj->category[0].cost;
+
+	return dj->cost;
 }
 
 const char * linkage_get_word(const Linkage linkage, WordIdx w)
@@ -922,7 +922,7 @@ int linkage_unused_word_cost(const Linkage linkage)
 	return linkage->lifo.unused_word_cost;
 }
 
-double linkage_disjunct_cost(const Linkage linkage)
+float linkage_disjunct_cost(const Linkage linkage)
 {
 	/* The sat solver (currently) fails to fill in info */
 	if (!linkage) return 0.0;

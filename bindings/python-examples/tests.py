@@ -32,6 +32,10 @@ if re.search(r'_MSC_FULL_VER', clg.linkgrammar_get_configuration()) and \
    not re.search(r'USE_SQLITE', clg.linkgrammar_get_configuration()):
     NO_SQLITE_ERROR = 'Library is not configures with SQLite support'
 
+NOT_COMPILED_WITH_PCRE2 = ''
+if not re.search(r'HAVE_PCRE2_H', clg.linkgrammar_get_configuration()):
+   NOT_COMPILED_WITH_PCRE2 = 'Library not configured with PCRE2 support'
+
 # Show the location and version of the bindings modules
 for imported_module in 'linkgrammar$', 'clinkgrammar', '_clinkgrammar', 'lg_testutils':
     module_found = False
@@ -77,11 +81,11 @@ class AADictionaryTestCase(unittest.TestCase):
 
         save_stderr = divert_start(2)
         self.assertRaises(LG_DictionaryError, Dictionary, dummy_lang + '1')
-        self.assertIn(dummy_lang + '1', save_stderr.divert_end())
+        self.assertIn(dummy_lang + '1', str(save_stderr.divert_end()))
 
         save_stderr = divert_start(2)
         self.assertRaises(LG_Error, Dictionary, dummy_lang + '2')
-        self.assertIn(dummy_lang + '2', save_stderr.divert_end())
+        self.assertIn(dummy_lang + '2', str(save_stderr.divert_end()))
 
 # Check absolute and relative dictionary access.
 # Check also that the dictionary language is set correctly.
@@ -486,7 +490,7 @@ class EErrorFacilityTestCase(unittest.TestCase):
         self.numerr = LG_Error.printall(self.error_handler_test, None)
         self.assertEqual(self.numerr, self.numerr)
 
-    def test_22_defaut_handler_param(self):
+    def test_22_default_handler_param(self):
         """Test bad data parameter to default error handler"""
         # (It should be an integer >=0 and <= lg_None.)
         # Here the error handler is still set to None.
@@ -506,7 +510,7 @@ class EErrorFacilityTestCase(unittest.TestCase):
         dummy_lang = "a dummy dict name (bad param test)"
         self.assertRaises(LG_Error, Dictionary, dummy_lang)
         LG_Error.printall(self.error_handler_test, self) # grab a valid errinfo
-        #self.assertIn(dummy_lang, save_stderr.divert_end())
+        #self.assertIn(dummy_lang, str(save_stderr.divert_end()))
         self.assertRaisesRegexp(TypeError, "must be an integer",
                                 self.__class__.handler["default"],
                                 self.errinfo, "bad param")
@@ -520,7 +524,7 @@ class EErrorFacilityTestCase(unittest.TestCase):
             self.param_ok = False
             save_stdout = divert_start(1) # Note: Handler parameter is stdout
             self.__class__.handler["default"](self.errinfo, 1)
-            self.assertIn(dummy_lang, save_stdout.divert_end())
+            self.assertIn(dummy_lang, str(save_stdout.divert_end()))
             self.param_ok = True
         except (TypeError, ValueError):
             self.assertTrue(self.param_ok)
@@ -598,7 +602,7 @@ class EErrorFacilityTestCase(unittest.TestCase):
         dummy_lang = "a dummy dict name (default handler test)"
         save_stderr = divert_start(2)
         self.assertRaises(LG_Error, Dictionary, dummy_lang)
-        self.assertIn(dummy_lang, save_stderr.divert_end())
+        self.assertIn(dummy_lang, str(save_stderr.divert_end()))
         self.assertEqual(self.errinfo, "dummy")
 
 class FSATsolverTestCase(unittest.TestCase):
@@ -1018,11 +1022,13 @@ class XLookupListTestCase(unittest.TestCase):
 
     def test_file_lookup_list_no_subscr(self):
         dictnode = clg.dictionary_lookup_list(self.d_en._obj, 'test')
+        # The following supposes there are no idioms with the word "test".
+        # If such idioms are added, filter out the subscript "._I".
         self.assertEqual(sorted([dictnode[i].string for i in range(len(dictnode))]), [sm('test.n'), sm('test.v')])
         for i in range(len(dictnode)):
             self.assertIn("(", str(dictnode[i].exp), "Missing expression")
             if dictnode[i].string == sm('test.n'):
-                self.assertEqual(dictnode[i].file, 'en/words/words.n.1-const')
+                self.assertEqual(dictnode[i].file, 'en/words/words.n.4-const')
             elif dictnode[i].string == sm('test.v'):
                 self.assertIsNone(dictnode[i].file)
 
@@ -1084,24 +1090,25 @@ class XExp_resolving_test(unittest.TestCase):
 
     def test_resolving(self):
         """
-        Test expression resolving using the default headline:4 setting from
+        Test expression resolving using the default headline:99 setting from
         data/en/4.0.dialect.
         """
-        dictnode = clg.dictionary_lookup_list(self.d._obj, sm('test.n'))
+        dictnode = clg.dictionary_lookup_list(self.d._obj, sm('book.n'))
         exp_old = dictnode[0].exp
-        exp_new = clg.lg_exp_resolve(self.d._obj, exp_old, ParseOptions()._obj)  # headline:4
+        exp_new = clg.lg_exp_resolve(self.d._obj, exp_old, ParseOptions()._obj)  # headline:99
 
         # Find the 2 locations with a difference when comparing
         # exp_old to exp_new and validate them.
         # Locations 2 and 4 are in exp_old. Locations 6 and 7 are in exp_new.
         # () is the null expression that is controlled by "headline".
+        # 99.000 is the current headline cost placed into 4.0.dialect
         str_comb = str(exp_old) + '%' + str(exp_new)
         diff = re.search(r'^([^%]*)(\(Ds\*\*x- or \([^%]*?\)\)\)\))([^%]*)(\(Ds\*\*c- or \([^%]*?\)\)\)\))([^%]*)%\1(.*)\3(.*)\5$', str_comb)
         #                      1                2                     3                4                     5        6     7
         self.assertEqual(diff.group(2), '(Ds**x- or (())))')
         self.assertEqual(diff.group(4), '(Ds**c- or (())))')
-        self.assertEqual(diff.group(6), '(Ds**x- or ([[[[()]]]])))')
-        self.assertEqual(diff.group(7), '(Ds**c- or ([[[[()]]]])))')
+        self.assertEqual(diff.group(6), '(Ds**x- or ([()]99.000)))')
+        self.assertEqual(diff.group(7), '(Ds**c- or ([()]99.000)))')
 
 
 # Currently, the dictionary creating function sets the generation mode if
@@ -1130,6 +1137,39 @@ class YGenerationTestCase(unittest.TestCase):
     def test_getting_linkages_sql_dict(self):
         linkages = Sentence((clg.WILDCARD_WORD + ' ') * 4, Dictionary(lang='demo-sql'), self.po).parse()
         self.assertTrue(len(linkages) > 0, "No linkages")
+
+
+class ZANYAMYTestCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if NOT_COMPILED_WITH_PCRE2 == '':
+           cls.amy_dict = Dictionary(lang='amy')
+           cls.amy_po = ParseOptions(display_morphology=True, linkage_limit=20000)
+        cls.any_dict = Dictionary(lang='any')
+        cls.any_po = ParseOptions(display_morphology=False, linkage_limit=200)
+
+    @classmethod
+    def tearDownClass(cls):
+        if NOT_COMPILED_WITH_PCRE2 == '':
+            del cls.amy_dict
+        del cls.any_dict
+
+    def find_num_linkages(self, sentense_text, dict, po):
+        return len(Sentence(sentense_text, dict, po).parse())
+
+    @unittest.skipIf(NOT_COMPILED_WITH_PCRE2, NOT_COMPILED_WITH_PCRE2)
+    def test_amy_num_linkages(self):
+       self.assertEqual(5292, self.find_num_linkages('this is a test', self.amy_dict, self.amy_po))
+
+    @unittest.skipIf(NOT_COMPILED_WITH_PCRE2, NOT_COMPILED_WITH_PCRE2)
+    def test_amy(self):
+        linkage_testfile(self, self.amy_dict, self.amy_po)
+
+    def test_any_num_linkages(self):
+       self.assertEqual(156, self.find_num_linkages('this is a test', self.any_dict, self.any_po))
+
+    def test_any(self):
+        linkage_testfile(self, self.any_dict, self.any_po)
 
 
 class ZENConstituentsCase(unittest.TestCase):
@@ -1249,9 +1289,83 @@ class ZRULangTestCase(unittest.TestCase):
              'облачк.=', '=а.ndnpi',
              '.', 'RIGHT-WALL'])
 
+
+# The Thai 4.0.affix files currently contain strippable affixes that are
+# not in the dict. This causes an annoying multiline error output that are
+# filtered out here using divert().
+class ZTHLangTestCase(unittest.TestCase):
+    def test_thai(self):
+        save_stderr = divert_start(2)
+        linkage_testfile(self, Dictionary(lang='th'), ParseOptions())
+        for line in save_stderr.divert_end().decode().split("\n"):
+           if 'Token(s) not in the dictionary' not in line:
+              print(line)
+
+
 class ZXDictDialectTestCase(unittest.TestCase):
     def test_dialect(self):
         linkage_testfile(self, Dictionary(lang='en'), ParseOptions(dialect='headline'), 'dialect')
+
+
+# Test for some catastrophic failures in displaying word expressions.
+# FIXME: This is a very small subset of the tests that are needed to
+# cover the correctness of dict_display_word_expr().
+class ZZdict_display_word_expr(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+       cls.d, cls.po = Dictionary(), ParseOptions()
+
+    @classmethod
+    def tearDownClass(cls):
+       del cls.d, cls.po
+
+    def test_nonexistent_word(self):
+       out = clg.dict_display_word_expr(self.d._obj, 'xxxdummy', self.po._obj)
+       self.assertIsNone(out)
+
+    def test_unsubscripted_word(self):
+       out = clg.dict_display_word_expr(self.d._obj, 'test', self.po._obj)
+       self.assertIsNotNone(out, 'Word "test" not found')
+       self.assertIn(' test.n ', out)
+
+    def test_subscripted_word(self):
+       out = clg.dict_display_word_expr(self.d._obj, 'test.v', self.po._obj)
+       self.assertIsNotNone(out, 'Word "test.v" not found')
+       self.assertIn(' test.v ', out)
+       self.assertNotIn(' test.n ', out)
+
+    def test_wildcard(self):
+       ltdict = Dictionary('lt')
+       out = clg.dict_display_word_expr(ltdict._obj, '*', self.po._obj)
+       # The output contains at least this number of non-empty lines.
+       self.assertTrue(len(list(out.splitlines())) > 1800)
+
+    def test_macros(self):
+       out = clg.dict_display_word_expr(self.d._obj, 'book/m', self.po._obj)
+       self.assertIn('<common-const-noun>:', out)
+       self.assertIn('<verb-pl,i>', out)
+
+    def test_disjuncts(self):
+       # dict_display_word_expr doesn't trigger reading the default cost_max.
+       self.po.disjunct_cost = clg.linkgrammar_get_dict_max_disjunct_cost(self.d._obj)
+
+       out = clg.dict_display_word_expr(self.d._obj, 'a//', self.po._obj)
+       self.assertIn('Token "a" disjuncts:', out)
+       #self.assertRegex(out, r'a: \[\d+] \d+\.\d+\s*=  <> Ds\*\*x\+')
+       self.assertIn(' a.eq ', out)
+
+    def test_disjunct_macros(self):
+       self.po.disjunct_cost = clg.linkgrammar_get_dict_max_disjunct_cost(self.d._obj)
+       # Here we use the word "test" that has many disjuncts, in a try to
+       # trigger memory handling bugs, if exist.
+       out = clg.dict_display_word_expr(self.d._obj, 'test//m', self.po._obj)
+       self.assertIn('Token "test" disjuncts:', out)
+       self.assertIn('<b-minus>: B*w- &', out)
+
+    def test_low_level_exp(self):
+       out = clg.dict_display_word_expr(self.d._obj, 'a/l', self.po._obj)
+       self.assertRegex(out, r'e=(0[xX])?[0-9a-fA-F]+: CONNECTOR Ds\*\*x\+ cost=0.000')
+
 
 #############################################################################
 
@@ -1372,6 +1486,7 @@ def linkage_testfile(self, lgdict, popt, desc=''):
         else:
             self.fail('\nTest file "{}": Invalid opcode "{}" (ord={})'.format(testfile, line[0], ord(line[0])))
 
+    self.assertIsNotNone(last_opcode, "Missing opcode in " + testfile)
     self.assertIn(last_opcode, 'OCP', "Missing result comparison in " + testfile)
 
 def warning(*msg):
@@ -1397,12 +1512,13 @@ class divert_start(object):
         if not self.filename:
             return ""
         os.lseek(self.fd, os.SEEK_SET, 0)
-        content = os.read(self.fd, 1024) # 1024 is more than needed
+        with os.fdopen(self.fd, 'rb') as file:
+            content = file.read()
         os.dup2(self.savedfd, self.fd)
         os.close(self.savedfd)
         os.unlink(self.filename)
         self.filename = None
-        return str(content)
+        return content
 
     __del__ = divert_end
 

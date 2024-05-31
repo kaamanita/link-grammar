@@ -514,7 +514,7 @@ Exp* SATEncoder::join_alternatives(int w)
 void SATEncoder::generate_link_cw_ordinary_definition(size_t wi, int pi,
                                                       Exp* e, size_t wj)
 {
-  const char* Ci = e->condesc->string;
+  const char* Ci = e->condesc->more->string;
   char dir = e->dir;
   double cost = e->cost;
   Lit lhs = Lit(_variables->link_cw(wj, wi, pi, Ci));
@@ -1684,7 +1684,7 @@ void SATEncoderConjunctionFreeSentences::determine_satisfaction(int w, char* nam
 void SATEncoderConjunctionFreeSentences::generate_satisfaction_for_connector(
     int wi, int pi, Exp *e, char* var)
 {
-  const char* Ci = e->condesc->string;
+  const char* Ci = e->condesc->more->string;
   char dir = e->dir;
   bool multi = e->multi;
   double cost = e->cost;
@@ -1793,7 +1793,7 @@ Exp* SATEncoderConjunctionFreeSentences::PositionConnector2exp(const PositionCon
 bool SATEncoderConjunctionFreeSentences::sat_extract_links(Linkage lkg)
 {
   Disjunct *d;
-  int current_link = 0;
+  uint32_t current_link = 0;
 
   Exp **exp_word = (Exp **)alloca(_sent->length * sizeof(Exp *));
   memset(exp_word, 0, _sent->length * sizeof(Exp *));
@@ -1810,7 +1810,7 @@ bool SATEncoderConjunctionFreeSentences::sat_extract_links(Linkage lkg)
     if (_solver->model[_variables->linked(var->left_word, var->right_word)] != l_True)
       continue;
 
-    check_link_size(lkg);
+    assert(current_link < lkg->lasz, "Linkage array too small!");
     Link& clink = lkg->link_array[current_link];
     current_link++;
     clink.lw = var->left_word;
@@ -1824,8 +1824,8 @@ bool SATEncoderConjunctionFreeSentences::sat_extract_links(Linkage lkg)
 
     // Allocate memory for the connectors, because they should persist
     // beyond the lifetime of the sat-solver data structures.
-    clink.lc = connector_new(NULL, NULL, NULL);
-    clink.rc = connector_new(NULL, NULL, NULL);
+    clink.lc = connector_new(NULL, NULL);
+    clink.rc = connector_new(NULL, NULL);
 
     *clink.lc = lpc->connector;
     *clink.rc = rpc->connector;
@@ -1889,7 +1889,7 @@ bool SATEncoderConjunctionFreeSentences::sat_extract_links(Linkage lkg)
 #else
     cost_cutoff = 1000.0;
 #endif // LIMIT_TOTAL_LINKAGE_COST
-    d = build_disjuncts_for_exp(NULL, de, xnode_word[wi]->string,
+    d = build_disjuncts_for_exp(_sent, de, xnode_word[wi]->string,
                                 &xnode_word[wi]->word->gword_set_head,
                                 cost_cutoff, _opts);
 

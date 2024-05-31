@@ -37,7 +37,7 @@ AM_CPPFLAGS = -I$(top_builddir) -I$(top_srcdir)
 AM_CFLAGS = $(WARN_CFLAGS) $(HUNSPELL_CFLAGS) $(REGEX_CFLAGS) $(SQLITE3_CFLAGS) $(PTHREAD_CFLAGS)
 
 post-process/pp_lexer.lo: AM_CPPFLAGS += -I$(top_srcdir)/link-grammar/post-process
-MAINTAINERCLEANFILES = $(top_srcdir)/link-grammar/post-process/pp_lexer.c
+DISTCLEANFILES = $(top_builddir)/link-grammar/post-process/pp_lexer.c
 
 lib_LTLIBRARIES = liblink-grammar.la
 
@@ -57,6 +57,10 @@ endif
 
 if HAVE_SQLITE3
 liblink_grammar_la_LIBADD  +=  ${SQLITE3_LIBS}
+endif
+
+if HAVE_ATOMSPACE
+liblink_grammar_la_LIBADD  +=  ${ATOMSPACE_LIBS}
 endif
 
 if WITH_SAT_SOLVER
@@ -83,11 +87,13 @@ dict-common/regex-morph.lo: CFLAGS =
 endif
 
 liblink_grammar_la_SOURCES =        \
-	api.c                            \
+	config.c                         \
 	connectors.c                     \
 	dict-common/dialect.c            \
+	dict-common/dict-affix-impl.c    \
 	dict-common/dict-common.c        \
-	dict-common/dict-impl.c          \
+	dict-common/dict-internals.c     \
+	dict-common/dict-locale.c        \
 	dict-common/dict-utils.c         \
 	dict-common/file-utils.c         \
 	dict-common/idiom.c              \
@@ -98,7 +104,15 @@ liblink_grammar_la_SOURCES =        \
 	dict-file/read-dict.c            \
 	dict-file/read-regex.c           \
 	dict-file/word-file.c            \
+	dict-ram/dict-ram.c              \
 	dict-sql/read-sql.c              \
+	dict-atomese/read-atomese.c      \
+	dict-atomese/link-names.cc       \
+	dict-atomese/lookup-atomese.cc   \
+	dict-atomese/fetch-cats.cc       \
+	dict-atomese/sections.cc         \
+	dict-atomese/word-pairs.cc       \
+	dict-atomese/utils.cc            \
 	disjunct-utils.c                 \
 	error.c                          \
 	linkage/analyze-linkage.c        \
@@ -108,6 +122,7 @@ liblink_grammar_la_SOURCES =        \
 	linkage/sane.c                   \
 	linkage/score.c                  \
 	memory-pool.c                    \
+	options.c                        \
 	parse/count.c                    \
 	parse/extract-links.c            \
 	parse/fast-match.c               \
@@ -126,9 +141,11 @@ liblink_grammar_la_SOURCES =        \
 	print/print-util.c               \
 	print/wcwidth.c                  \
 	resources.c                      \
+	sentence.c                       \
 	string-set.c                     \
 	string-id.c                      \
 	tokenize/anysplit.c              \
+	tokenize/lookup-exprs.c          \
 	tokenize/spellcheck-aspell.c     \
 	tokenize/spellcheck-hun.c        \
 	tokenize/tokenize.c              \
@@ -143,10 +160,12 @@ liblink_grammar_la_SOURCES =        \
 	const-prime.h                    \
 	dict-common/dialect.h            \
 	dict-common/dict-affix.h         \
+	dict-common/dict-affix-impl.h    \
 	dict-common/dict-api.h           \
 	dict-common/dict-common.h        \
 	dict-common/dict-defines.h       \
-	dict-common/dict-impl.h          \
+	dict-common/dict-internals.h     \
+	dict-common/dict-locale.h        \
 	dict-common/dict-structures.h    \
 	dict-common/dict-utils.h         \
 	dict-common/file-utils.h         \
@@ -156,7 +175,12 @@ liblink_grammar_la_SOURCES =        \
 	dict-file/read-dict.h            \
 	dict-file/read-regex.h           \
 	dict-file/word-file.h            \
+	dict-ram/dict-ram.h              \
 	dict-sql/read-sql.h              \
+	dict-atomese/dict-atomese.h      \
+	dict-atomese/local-as.h          \
+	dict-atomese/lookup-atomese.h    \
+	dict-atomese/read-atomese.h      \
 	disjunct-utils.h                 \
 	error.h                          \
 	externs.h                        \
@@ -188,6 +212,7 @@ liblink_grammar_la_SOURCES =        \
 	string-set.h                     \
 	string-id.h                      \
 	tokenize/anysplit.h              \
+	tokenize/lookup-exprs.h          \
 	tokenize/spellcheck.h            \
 	tokenize/tok-structures.h        \
 	tokenize/tokenize.h              \
@@ -200,8 +225,9 @@ liblink_grammar_includedir = $(includedir)/link-grammar
 liblink_grammar_include_HEADERS =   \
 	link-features.h                  \
 	link-includes.h                  \
+	dict-atomese/dict-atomese.h      \
 	dict-common/dict-api.h           \
-	dict-common/dict-defines.h           \
+	dict-common/dict-defines.h       \
 	dict-common/dict-structures.h
 
 uninstall-hook:
@@ -209,9 +235,12 @@ uninstall-hook:
 
 EXTRA_DIST=                         \
 	README.md                        \
+	dict-ram/README.md               \
 	dict-sql/dict.sql                \
 	dict-sql/demo.sql                \
 	dict-sql/README.md               \
+	dict-atomese/README.md           \
+	parse/pc-display.c               \
 	tokenize/README.md
 
 # -----------------------------------------------------------

@@ -14,14 +14,17 @@
 #include "api-structures.h"
 #include "dict-common/dialect.h"      // dialect_alloc
 #include "dict-common/dict-affix.h"
+#include "dict-common/dict-affix-impl.h"
 #include "dict-common/dict-api.h"
 #include "dict-common/dict-common.h"
 #include "dict-common/dict-defines.h"
-#include "dict-common/dict-impl.h"
+#include "dict-common/dict-internals.h"
+#include "dict-common/dict-locale.h"
 #include "dict-common/dict-utils.h"
 #include "dict-common/file-utils.h"
 #include "dict-common/idiom.h"
 #include "dict-common/regex-morph.h"
+#include "dict-ram/dict-ram.h"
 #include "post-process/pp_knowledge.h"
 #include "read-dialect.h"
 #include "read-dict.h"
@@ -35,6 +38,18 @@
 * Routines for manipulating Dictionary
 *
 ****************************************************************/
+
+/**
+ * If word has a connector, return it.
+ * If word has more than one connector, return NULL.
+ */
+static const char * word_only_connector(Dict_node * dn)
+{
+	Exp * e = dn->exp;
+	if (CONNECTOR_type == e->type)
+		return e->condesc->more->string;
+	return NULL;
+}
 
 static void load_affix(Dictionary afdict, Dict_node *dn, int l)
 {
@@ -81,11 +96,6 @@ static void load_affix(Dictionary afdict, Dict_node *dn, int l)
 	}
 }
 
-static void free_llist(Dictionary dict, Dict_node *llist)
-{
-	file_free_lookup(llist);
-}
-
 /**
  * Dummy lookup function for the affix dictionary -
  * compile_regexs() needs it.
@@ -96,7 +106,33 @@ static bool return_true(Dictionary dict, const char *name)
 }
 
 /**
- * Read dictionary entries from a wide-character string "input".
+ * Process the regex file.
+ * We have to compile regexs using the dictionary locale,
+ * so make a temporary locale swap. XXX FIXME: Thread safety.
+ */
+static bool load_regexes(Dictionary dict, const char *regex_name)
+{
+	if (!read_regex_file(dict, regex_name)) return false;
+
+	const char *locale = setlocale(LC_CTYPE, NULL); /* Save current locale. */
+	locale = strdupa(locale); /* setlocale() uses its own memory. */
+	setlocale(LC_CTYPE, dict->locale);
+	lgdebug(+D_DICT, "Regexs locale \"%s\"\n", setlocale(LC_CTYPE, NULL));
+
+	if (!compile_regexs(dict->regex_root, dict))
+	{
+		locale = setlocale(LC_CTYPE, locale);         /* Restore the locale. */
+		assert(NULL != locale, "Cannot restore program locale");
+		return false;
+	}
+	locale = setlocale(LC_CTYPE, locale);            /* Restore the locale. */
+	assert(NULL != locale, "Cannot restore program locale");
+
+	return true;
+}
+
+/**
+ * Read dictionary entries from a utf-8 string "input".
  * All other parts are read from files.
  */
 #define D_DICT 10
@@ -146,50 +182,54 @@ dictionary_six_str(const char * lang,
 		dict->current_idiom[IDIOM_LINK_SZ-1] = 0;
 
 		dict->insert_entry = insert_list;
-		dict->lookup_list = file_lookup_list;
-		dict->lookup_wild = file_lookup_wild;
-		dict->free_lookup = free_llist;
-		dict->lookup = file_boolean_lookup;
+		dict->lookup_list = dict_node_lookup;
+		dict->lookup_wild = dict_node_wild_lookup;
+		dict->free_lookup = dict_node_free_lookup;
+		dict->exists_lookup = dict_node_exists_lookup;
+		dict->clear_cache = dict_node_noop;
+		dict->start_lookup = dict_lookup_noop;
+		dict->end_lookup = dict_lookup_noop;
+
 		dict->dialect_tag.set = string_id_create();
-		condesc_init(dict, 1<<13);
-		Exp_pool_size = 1<<13;
+
+		// Actual usage:
+		// Lang  Exp   Condesc
+		//  en   47K    2.3K
+		//  ru  300K    5.5K
+		//  th    8K    2.0K
+		// The pool sizes are slightly under a power of two,
+		// so that malloc doesn't round up to next power of two.
+		condesc_init(dict, 3060);
+		Exp_pool_size = 16380;
 
 		if (!test_enabled("no-macro-tag"))
 		{
 			dict->macro_tag = malloc(sizeof(*dict->macro_tag));
 			memset(dict->macro_tag, 0, sizeof(*dict->macro_tag));
 		}
-
-		dict->define.set = string_id_create();
 	}
 	else
 	{
-		/*
-		 * Affix dictionary.
-		 */
+		/* Affix dictionary. */
 		afclass_init(dict);
 		dict->insert_entry = load_affix;
-		dict->lookup = return_true;
-		condesc_init(dict, 1<<9);
-		Exp_pool_size = 1<<5;
+		dict->exists_lookup = return_true;
+
+		// English dict is the largest of all;
+		// it has 16 exprs and 8 connectors in the affix table.
+		condesc_init(dict, 16);
+		Exp_pool_size = 30;
 	}
+
+	dict->dfine.set = string_id_create();
 
 	dict->Exp_pool = pool_new(__func__, "Exp", /*num_elements*/Exp_pool_size,
 	                          sizeof(Exp), /*zero_out*/false,
 	                          /*align*/false, /*exact*/false);
 
 	/* Read dictionary from the input string. */
-
-	/* Make sure "." is used in string conversion to floating point.
-	 * FIXME: Use a locale-agnostic conversion function. */
-	setlocale(LC_NUMERIC, "C");
-
-	dict->input = input;
-	dict->pin = dict->input;
-	if (!read_dictionary(dict))
-	{
+	if (!read_dictionary(dict, input))
 		goto failure;
-	}
 
 	if (NULL == affix_name)
 	{
@@ -210,6 +250,8 @@ dictionary_six_str(const char * lang,
 	if (!dictionary_setup_defines(dict))
 		goto failure;
 
+	if (!load_regexes(dict, regex_name)) goto failure;
+
 	dict->affix_table = dictionary_six(lang, affix_name, NULL, NULL, NULL, NULL);
 	if (dict->affix_table == NULL)
 	{
@@ -221,27 +263,6 @@ dictionary_six_str(const char * lang,
 
 	if (! anysplit_init(dict->affix_table))
 		goto failure;
-
-	/*
-	 * Process the regex file.
-	 * We have to compile regexs using the dictionary locale,
-	 * so make a temporary locale swap.
-	 */
-	if (read_regex_file(dict, regex_name)) goto failure;
-
-	const char *locale = setlocale(LC_CTYPE, NULL); /* Save current locale. */
-	locale = strdupa(locale); /* setlocale() uses its own memory. */
-	setlocale(LC_CTYPE, dict->locale);
-	lgdebug(+D_DICT, "Regexs locale \"%s\"\n", setlocale(LC_CTYPE, NULL));
-
-	if (!compile_regexs(dict->regex_root, dict))
-	{
-		locale = setlocale(LC_CTYPE, locale);         /* Restore the locale. */
-		assert(NULL != locale, "Cannot restore program locale");
-		goto failure;
-	}
-	locale = setlocale(LC_CTYPE, locale);            /* Restore the locale. */
-	assert(NULL != locale, "Cannot restore program locale");
 
 	dict->base_knowledge  = pp_knowledge_open(pp_name);
 	dict->hpsg_knowledge  = pp_knowledge_open(cons_name);
@@ -281,7 +302,7 @@ dictionary_six(const char * lang, const char * dict_name,
 	dict = dictionary_six_str(lang, input, dict_name, pp_name,
 	                          cons_name, affix_name, regex_name);
 
-	free(input);
+	free_file_contents(input);
 	return dict;
 }
 

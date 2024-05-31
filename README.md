@@ -1,12 +1,12 @@
 Link Grammar Parser
 ===================
-***Version 5.10.2***
+***Version 5.12.5***
 
 ![Main](https://github.com/opencog/link-grammar/actions/workflows/main.yml/badge.svg)
 ![node.js](https://github.com/opencog/link-grammar/actions/workflows/bindings-js.yml/badge.svg)
 
 The Link Grammar Parser exhibits the linguistic (natural language)
-structure of English, Russian, Arabic, Persian and limited subsets
+structure of English, Thai, Russian, Arabic, Persian and limited subsets
 of a half-dozen other languages. This structure is a graph of typed
 links (edges) between the words in a sentence. One may obtain the
 more conventional HPSG (constituent) and dependency style parses
@@ -24,17 +24,25 @@ best introduction and overview; since then, there have been hundreds
 of publications further exploring, examining and extending the ideas.
 
 Although based on the
-[original Carnegie-Mellon code base](https://www.link.cs.cmu.edu/link/)
+[original Carnegie-Mellon code base](https://www.link.cs.cmu.edu/link/),
 the current Link Grammar package has dramatically evolved and is
 profoundly different from earlier versions.  There have been innumerable
-bug fixes; performance has improved by more than an order of magnitude.
+bug fixes; performance has improved by several orders of magnitude.
 The package is fully multi-threaded, fully UTF-8 enabled, and has been
 scrubbed for security, enabling cloud deployment.  Parse coverage of
 English has been dramatically improved; other languages have been added
-(most notably, Russian). There is a raft of new features, including support
-for morphology, log-likelihood semantic selection, and a sophisticated
-tokenizer that moves far beyond white-space-delimited sentence-splitting.
-Detailed lists can be found in the [ChangeLog](ChangeLog).
+(most notably, Thai and Russian). There is a raft of new features,
+including support for morphology, dialects, and a fine-grained weight
+(cost) system, allowing vector-embedding-like behaviour. There is a
+new, sophisticated tokenizer tailored for morphology: it can offer
+alternative splittings for morphologically ambiguous words.
+Dictionaries can be updated at run-time, enabling systems that perform
+continuous learning of grammar to also parse at the same time. That is,
+dictionary updates and parsing are mutually thread-safe. Classes of
+words can be recognized with regexes. Random planar graph parsing is
+fully supported; this allows uniform sampling of the space of planar
+graphs.  A detailed report of what has changed can be found in the
+[ChangeLog](ChangeLog).
 
 This code is released under the LGPL license, making it freely
 available for both private and commercial use, with few restrictions.
@@ -42,7 +50,7 @@ The terms of the license are given in the LICENSE file included with
 this software.
 
 Please see the
-[main web page](http://www.abisource.com/projects/link-grammar/)
+[main web page](https://opencog.github.io/link-grammar-website/)
 for more information.  This version is a continuation of the
 [original CMU parser](http://www.link.cs.cmu.edu/link).
 
@@ -97,7 +105,7 @@ the noun to the determiner: it again confirms that the noun is singular,
 and also that the noun starts with a consonant. (The `PH` link, not
 required here, is used to force phonetic agreement, distinguishing
 'a' from 'an').  These link types are documented in the
-[English Link Documentation](https://www.abisource.com/projects/link-grammar/dict/index.html).
+[English Link Documentation](https://opencog.github.io/link-grammar-website/dict/index.html).
 
 The bottom of the display is a listing of the "disjuncts" used for
 each word. The disjuncts are simply a list of the connectors that
@@ -130,9 +138,10 @@ The `LL` link connects the stem 'тест' to the suffix 'а'. The `MVA`
 link connects only to the suffix, because, in Russian, it is the
 suffixes that carry all of the syntactic structure, and not the stems.
 The Russian lexis is
-[documented here](https://www.abisource.com/projects/link-grammar/russian/doc/).
+[documented here](https://opencog.github.io/link-grammar-website/russian/doc/).
 
-And here is an example in Thai:
+The Thai dictionary is now fully developed, effectively covering the
+entire language.  An example in Thai:
 ```
 linkparser> นายกรัฐมนตรี ขึ้น กล่าว สุนทรพจน์
 	Linkage 1, cost vector = (UNUSED=0 DIS= 2.00 LEN=2)
@@ -143,9 +152,13 @@ linkparser> นายกรัฐมนตรี ขึ้น กล่าว �
 LEFT-WALL นายกรัฐมนตรี.n ขึ้น.v กล่าว.v สุนทรพจน์.n
 ```
 
-The `VS` link connects two verbs 'ขึ้น' and 'กล่าว' in a serial verb construction. A summary of link types is [documented here](https://github.com/kaamanita/link-grammar/blob/master/data/th/README.md). A full documentation of Thai Link Grammar can be [found here](https://github.com/kaamanita/link-grammar/blob/master/data/th/LINKDOC.md).
+The `VS` link connects two verbs 'ขึ้น' and 'กล่าว' in a serial verb
+construction. A summary of link types is
+[documented here](data/th/README.md). Full documentation of Thai Link
+Grammar can be [found here](data/th/LINKDOC.md).
 
-Thai Link Grammar also accepts POS-tagged and named-entity-tagged inputs. Each word can be annotated with the Link POS tag. For example:
+Thai Link Grammar also accepts POS-tagged and named-entity-tagged
+inputs. Each word can be annotated with the Link POS tag. For example:
 
 ```
 linkparser> เมื่อวานนี้.n มี.ve คน.n มา.x ติดต่อ.v คุณ.pr ครับ.pt
@@ -159,9 +172,12 @@ Found 1 linkage (1 had no P.P. violations)
 LEFT-WALL เมื่อวานนี้.n[!] มี.ve[!] คน.n[!] มา.x[!] ติดต่อ.v[!] คุณ.pr[!] ครับ.pt[!]
 ```
 
-A full documentation for the input formats can be [found here](https://github.com/kaamanita/link-grammar/blob/master/data/th/INPUT_FORMATS.md).
+Full documentation for the Thai dictionary can be
+[found here](data/th/INPUT_FORMATS.md).
 
-Moreover, it accepts LST20 tagsets for POS and named entities to bridge the gap between fundamental NLP tools and the Link Parser. For example:
+The Thai dictionary accepts LST20 tagsets for POS and named entities,
+to bridge the gap between fundamental NLP tools and the Link Parser.
+For example:
 
 ```
 linkparser> linkparser> วันที่_25_ธันวาคม@DTM ของ@PS ทุก@AJ ปี@NN เป็น@VV วัน@NN คริสต์มาส@NN
@@ -176,7 +192,34 @@ Found 348 linkages (348 had no P.P. violations)
 LEFT-WALL วันที่_25_ธันวาคม@DTM[!] ของ@PS[!].pnn ทุก@AJ[!].jl ปี@NN[!].n เป็น@VV[!].v วัน@NN[!].na คริสต์มาส@NN[!].n
 ```
 
-Note that each word above is annotated with LST20 POS tags and NE tags. A full documentation for both the Link POS tags and the LST20 tagsets can be [found here](https://github.com/kaamanita/link-grammar/blob/master/data/th/TAGSETS.md). More information about LST20, e.g. annotation guideline and data statistics, can be [found here](https://arxiv.org/abs/2008.05055).
+Note that each word above is annotated with LST20 POS tags and NE tags.
+Full documentation for both the Link POS tags and the LST20 tagsets can
+be [found here](data/th/TAGSETS.md). More information about LST20, e.g.
+annotation guideline and data statistics, can be
+[found here](https://arxiv.org/abs/2008.05055).
+
+The `any` language supports uniformly-sampled random planar graphs:
+```
+linkparser> asdf qwer tyuiop fghj bbb
+Found 1162 linkages (1162 had no P.P. violations)
+
+             +-------ANY------+-------ANY------+
+    +---ANY--+--ANY--+        +---ANY--+--ANY--+
+    |        |       |        |        |       |
+LEFT-WALL asdf[!] qwer[!] tyuiop[!] fghj[!] bbb[!]
+```
+The `ady` language does likewise, performing random morphological
+splittings:
+```
+linkparser> asdf qwerty fghjbbb
+Found 1512 linkages (1512 had no P.P. violations)
+
+                                  +------------------ANY-----------------+
+    +-----ANY----+-------ANY------+                  +---------LL--------+
+    |            |                |                  |                   |
+LEFT-WALL asdf[!ANY-WORD] qwerty[!ANY-WORD] fgh[!SIMPLE-STEM].= =jbbb[!SIMPLE-SUFF]
+```
+
 
 Theory and Documentation
 ------------------------
@@ -199,10 +242,10 @@ topic:
   1992 *AAAI Symposium on Probabilistic Approaches to Natural Language*.
 
 There are many more papers and references listed on the
-[primary Link Grammar website](https://www.abisource.com/projects/link-grammar/).
+[primary Link Grammar website](https://opencog.github.io/link-grammar-website/)
 
 See also the
-[C/C++ API documentation](https://www.abisource.com/projects/link-grammar/api/index.html).
+[C/C++ API documentation](https://opencog.github.io/link-grammar-website/api/index.html).
 Bindings for other programming languages, including python3, java
 and node.js, can be found in the [bindings directory](bindings).
 (There are two sets of javascript bindings: one set for the library API,
@@ -214,6 +257,9 @@ Contents
 | Content       | Description |
 | ------------- |-------------|
 | LICENSE     | The license describing terms of use |
+| ChangeLog | A compendium of recent changes. |
+| configure | The GNU configuration script |
+| autogen.sh | Developer's configure maintenance tool |
 | link-grammar/*.c | The program.  (Written in ANSI-C) |
 | ---- | ---- |
 | bindings/autoit/  | Optional AutoIt language bindings. |
@@ -252,10 +298,6 @@ Contents
 | morphology/ar/ | An Arabic morphology analyzer |
 | morphology/fa/ | An Persian morphology analyzer |
 | ---- | ---- |
-| LICENSE | The license for this code and data |
-| ChangeLog | A compendium of recent changes. |
-| configure | The GNU configuration script |
-| autogen.sh | Developer's configure maintenance tool |
 | debug/ | Information about debugging the library |
 | msvc/ | Microsoft Visual-C project files |
 | mingw/ | Information on using MinGW under MSYS or Cygwin |
@@ -267,14 +309,14 @@ it can be extracted using the `tar -zxf link-grammar.tar.gz` command
 at the command line.
 
 A tarball of the latest version can be downloaded from:<br>
-http://www.abisource.com/downloads/link-grammar
+[https://www.gnucash.org/link-grammar/downloads/](https://www.gnucash.org/link-grammar/downloads/)
 
 The files have been digitally signed to make sure that there was no
 corruption of the dataset during download, and to help ensure that
 no malicious changes were made to the code internals by third
 parties. The signatures can be checked with the gpg command:
 
-`gpg --verify link-grammar-5.10.2.tar.gz.asc`
+`gpg --verify link-grammar-5.12.5.tar.gz.asc`
 
 which should generate output identical to (except for the date):
 ```
@@ -289,7 +331,7 @@ verify the check-sums, issue `md5sum -c MD5SUM` at the command line.
 Tags in `git` can be verified by performing the following:
 ```
 gpg --recv-keys --keyserver keyserver.ubuntu.com EB6AA534E0C0651C
-git tag -v link-grammar-5.10.2
+git tag -v link-grammar-5.10.5
 ```
 
 
@@ -332,11 +374,10 @@ be without it altogether. The library names may be without the prefix `lib`.
 * `libz1g-dev` or `libz-devel` (currently needed for the bundled `minisat2`)<br>
 * `libedit-dev` (see [Editline](#Editline))<br>
 * `libhunspell-dev` or `libaspell-dev` (and the corresponding English dictionary).<br>
-* `libtre-dev` or `libpcre2-dev` (usually much faster than the libc REGEX
-implementation, and needed for correctness on FreeBSD and Cygwin)
-
-Note: BSD-derived operating systems (including macOS) need the
-`argp-standalone` library in order to build the `link-generator` program.
+* `libtre-dev` or `libpcre2-dev` (much faster than the libc REGEX
+implementation, and needed for correctness on FreeBSD and Cygwin).<br>
+Using `libpcre2-dev` is strongly recommended. It must be used on certain
+systems (as specified in their BUILDING sections).
 
 ### Editline
 If `libedit-dev` is installed, then the arrow keys can be used to edit
@@ -401,7 +442,7 @@ and `tests.py` runs unit tests.
 
 - macOS:
    * Due to file permissions settings, macOS users may need to install
-     python bindindings into custom directory locations. This can be
+     python bindings into custom directory locations. This can be
      done by saying
      `make install pythondir=/where/to/install`
 
@@ -484,7 +525,7 @@ Tools that may need installation before you can build link-grammar:
 `autoconf`<br>
 `libtool`<br>
 `autoconf-archive`<br>
-`pkg-config`<br>
+`pkg-config` (may be named `pkgconf` or `pkgconfig`)<br>
 `pip3` (for the Python bindings)<br>
 
 Optional:<br>
@@ -517,8 +558,7 @@ It adds some verification debug code and functions that can
 pretty-print several data structures.
 
 A feature that may be useful for debugging is the word-graph
-display.  Use the `configure` option `--enable-wordgraph-display` to enable
-it. For more details on this feature, see
+display.  It is enabled by default. For more details on this feature, see
 [Word-graph display](link-grammar/tokenize/README.md#word-graph-display).
 
 
@@ -555,9 +595,6 @@ configure with:
 ./configure --disable-java-bindings
 ```
 
-By default, java requires a 64-bit binary, and not all macOS systems
-have a 64-bit devel environment installed.
-
 If you do want Java bindings, be sure to set the JDK_HOME environment
 variable to wherever `<Headers/jni.h>` is.   Set the JAVA_HOME variable
 to the location of the java compiler.  Make sure you have ant
@@ -579,23 +616,7 @@ Windows systems from Vista on.
 The Cygwin way currently produces the best result, as it supports line editing
 with command completion and history and also supports word-graph displaying on
 X-windows. (MinGW currently doesn't  have `libedit`, and the MSVC port
-currently doesn't support command completion and history, spelling and
-X-Windows word-graph display.)
-
-Link-grammar requires a working version of POSIX-standard regex
-libraries.  Since these are not provided by Microsoft, a copy must
-be obtained elsewhere.  One popular choice is
-[TRE](http://gnuwin32.sourceforge.net/packages/tre.htm).
-
-Another popular choice is PCRE, 'Perl-Compatible Regular Expressions',
-available at: http://www.pcre.org/ .<br>
-For building on Windows: https://github.com/rivy/PCRE .<br>
-Another popular choice is
-[PCRE, 'Perl-Compatible Regular Expressions'](http://www.pcre.org/).<br>
-Older 32-bit binaries are at:
-http://gnuwin32.sourceforge.net/packages/regex.htm .<br>
-See also:
-http://ftp.gnome.org/pub/gnome/binaries/win32/dependencies/regex.README .
+currently doesn't support command completion and history, and also spelling.
 
 ### BUILDING on Windows (Cygwin)
 The easiest way to have link-grammar working on MS Windows is to
@@ -646,7 +667,7 @@ directory in that order, directly or under a directory names `data`:
    command, which may be a script).
 
 If link-parser cannot find the desired dictionary, use verbosity
-level 3 to debug the problem; for example:
+level 4 to debug the problem; for example:
 ```
 link-parser ru -verbosity=4
 ```
@@ -809,13 +830,16 @@ aspell is used, else hunspell is used.
 Spell guessing may be disabled at runtime, in the link-parser client
 with the `!spell=0` flag.  Enter `!help` for more details.
 
+Caution: aspell version 0.60.8 and possibly others have a memory leak.
+The use of spell-guessing in production servers is strongly discouraged.
+Keeping spell-guessing disabled (`=0`) in `Parse_Options` is safe.
+
 
 ### Multi-threading
-It is safe to use link-grammar for parsing in multiple threads.
-Different threads may use different dictionaries, or the same dictionary.
-Parse options can be set on a per-thread basis, with the exception of
-verbosity, which is a global, shared by all threads.  It is the only
-global.
+It is safe to use link-grammar in multiple threads. Threads may share
+the same dictionary.  Parse options can be set on a per-thread basis,
+with the exception of verbosity, which is a global, shared by all
+threads.  It is the only global.
 
 Linguistic Commentary
 =====================
@@ -840,7 +864,7 @@ d matches h or nothing. This is a new feature in version 5.1.0
 (August 2014). The website provides additional documentation.
 
 Although the English-language link-grammar links are un-oriented,
-it seems that a defacto direction can be given to them that is
+it seems that a de facto direction can be given to them that is
 completely consistent with standard conceptions of a dependency
 grammar.
 
@@ -924,7 +948,7 @@ below is an actual working example, already implemented in the current
 LG English dictionary. *All* link crossings can be implemented in this
 way!  So we do not have to actually abandon the current parsing
 algorithms to get non-planar diagrams. We don't even have to modify them!
-Hurrahh!
+Hurrah!
 
 Here is a working example: "I want to look at and listen to everything."
 This wants two `J` links pointing to 'everything'.  The desired diagram
@@ -1107,7 +1131,7 @@ Type Theory
 -----------
 Link Grammar can be understood in the context of type theory.
 A simple introduction to type theory can be found in chapter 1
-of the [HoTT book](https://homotopytypetheory.org/book/).<br>
+of the [HoTT book](https://homotopytypetheory.org/book/).
 This book is freely available online and strongly recommended if
 you are interested in types.
 
@@ -1116,11 +1140,13 @@ The nice thing about link-grammar is that the link types form a type
 system that is much easier to use and comprehend than that of categorial
 grammar, and yet can be directly converted to that system!  That is,
 link-grammar is completely compatible with categorial grammar, and is
-easier-to-use.
+easier-to-use. See the paper
+[<i>"Combinatory Categorial Grammar and Link Grammar are Equivalent"</i>](https://github.com/opencog/atomspace/raw/master/opencog/sheaf/docs/ccg.pdf)
+for details.
 
 The foundational LG papers make comments to this effect; however, see
 also work by Bob Coecke on category theory and grammar.  Coecke's
-diagramatic approach is essentially identical to the diagrams given in
+diagrammatic approach is essentially identical to the diagrams given in
 the foundational LG papers; it becomes abundantly clear that the
 category theoretic approach is equivalent to Link Grammar. See, for
 example, this introductory sketch
@@ -1262,7 +1288,22 @@ Some complex phantom constructions:
  * If this is true, then (you should) do it.
  * Perhaps he will (do it), if he sees enough of her.
 
-See also [github issue #224](https://github.com/opencog/link-grammar/issues/224).
+See also [GitHub issue #224](https://github.com/opencog/link-grammar/issues/224).
+
+Actual ellipsis:
+ * At first, it seemed like ...
+ * It became clear that ...
+
+Here, the ellipsis stands for a subordinate clause, which attaches
+with not one, but two links: `C+ & CV+`, and thus requires two words,
+not one. There is no way to have the ellipsis word to sink two
+connectors starting from the same word, and so some more complex
+mechanism is needed. The solution is to infer a second phantom ellipsis:
+
+ * It became clear that ... (...)
+
+where the first ellipsis is a stand in for the subject of a subordinate
+clause, and the second stands in for an unknown verb.
 
 #### Elision of syllables
 Many (unstressed) syllables can be elided; in modern English, this occurs
@@ -1528,7 +1569,7 @@ http://www.corpus.bham.ac.uk/publications/index.shtml
    only... but also ...) which have a long-range structure similar to
    quoted text (he said ...).
 
-   See also [github issue #42](https://github.com/opencog/link-grammar/issues/42).
+   See also [GitHub issue #42](https://github.com/opencog/link-grammar/issues/42).
 
 ### Semantification of the dictionary:
   "to be fishing": Link grammar offers four parses of "I was fishing for

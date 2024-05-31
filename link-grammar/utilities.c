@@ -254,7 +254,7 @@ static int wctomb_check(char *s, wchar_t wc)
 	nr = wcrtomb(s, wc, &mbss);
 	if (nr < 0) {
 		prt_error("Fatal Error: unknown character set %s\n", nl_langinfo(CODESET));
-		exit(1);
+		lg_lib_failure();
 	}
 #endif /* _WIN32 */
 	return nr;
@@ -365,13 +365,10 @@ void *aligned_alloc(size_t alignment, size_t size)
 #endif /* HAVE_POSIX_MEMALIGN */
 
 /* ============================================================= */
-/* Memory alloc routines below. These routines attempt to keep
- * track of how much space is getting used during a parse.
- *
- * This code is probably obsolescent, and should probably be dumped.
- * No one (that I know of) looks at the space usage; its one of the
- * few areas that needs pthreads -- it would be great to just get
- * rid of it (and thus get rid of pthreads).
+/* Memory alloc routines to keep track of how much space is getting
+ * used during a parse.  This code is obsolescent; it is useful once a
+ * decade when there is some scare about memory usage. Overall, RAM
+ * usage is excellent; everything is well-managed.
  */
 
 #ifdef TRACK_SPACE_USAGE
@@ -728,49 +725,123 @@ char * get_default_locale(void)
 	return safe_strdup(locale);
 }
 
-#ifdef HAVE_LOCALE_T
-static void free_C_LC_NUMERIC(void);
-
-static locale_t get_C_LC_NUMERIC(void)
+/**
+ * A locale-independent version of strtof(). At this time (2023), the
+ * C Standards Committee does not offer a locale-independent version of
+ * strtof(). Trying to set LC_NUMERIC to "C", temporarily, while
+ * reading the dictionary, has proven painful and non-portable. The
+ * blob of code below, although large and complex, avoids the locale
+ * issues. C'est la vie.
+ *
+ * Convert to float a scaled integer string in the format:
+ * ([-+])?0*\d{,1}(\.\d*)?
+ * The string should contain at least one digit.
+ *
+ * Digits which are more than 4 positions after the decimal point are
+ * validated but are otherwise ignored.
+ *
+ * This format is also documented in the comment at the dictionary format
+ * comment at the start of read-dict.c - change it there if this function
+ * gets changed.
+ *
+ * @param s A string starting with an optional '+' or '-', then at most
+ * 2 decimal digits (leading zeros are not counted), then an optional
+ * point and optional decimal digits after it.
+ * @param[out] r If s is valid, this is its conversion to float.
+ * @return \c true iff \p s is valid.
+ */
+#define D_SITOF 5
+bool strtofC(const char *s, float *r)
 {
-	static locale_t locobj;
+#define DFP(n) (1.0f * n)
+#define FP_BY_POS(p) \
+	{ \
+		p*DFP(0), p*DFP(1), p*DFP(2), p*DFP(3), p*DFP(4), \
+		p*DFP(5), p*DFP(6), p*DFP(7), p*DFP(8), p*DFP(9)  \
+	}
 
-	if ((locale_t)0 != locobj) return locobj;
+	static float fpconv[][10] =
+	{
+		FP_BY_POS(10), FP_BY_POS(1), FP_BY_POS(0.1f), FP_BY_POS(0.01f),
+		FP_BY_POS(0.001f), FP_BY_POS(0.0001f)
+	};
+	static const int max_int_digits = 2;
+	static const int max_frac_digits = 4;
+	static const char max_str[] = "99.9999";
 
-#ifdef _WIN32
-	locobj = _create_locale(LC_NUMERIC, "C");
-#else
-	locobj = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
-#endif /* _WIN32 */
+	const char *si = s;
+	bool minus = false;
 
-	atexit(free_C_LC_NUMERIC);
+	if ((*si == '-') || (*si == '+'))
+	{
+		if (*si == '-') minus = true;
+		si++;
+	}
+	while (*si == '0') si++; /* Skip leading zeros. */
 
-	return locobj;
-}
+	const char *decpoint = strchr(si, '.');
+	const size_t len = strlen(si);
+	if (decpoint == NULL)
+	{
+		decpoint = &si[len];
+	}
+	else
+	{
+		if (strchr(decpoint+1, '.'))
+		{
+			lgdebug(+D_SITOF, "\"%s\": Extra decimal point\n", s);
+			return false;
+		}
+	}
 
-static void free_C_LC_NUMERIC(void)
-{
-	freelocale(get_C_LC_NUMERIC());
-}
-#endif /* HAVE_LOCALE_T */
+	int pos = max_int_digits - (int)(decpoint - si);
+	if (pos < 0)
+	{
+		lgdebug(+D_SITOF, "\"%s\" is too big (max %s)\n", s, max_str);
+		return false;
+	}
 
-/* FIXME: Rewrite to directly convert scaled integer strings (only). */
-bool strtodC(const char *s, float *r)
-{
-	char *err;
+	if ((si[0] == '\0') || ((si[0] == '.') && (si[1] == '\0')))
+	{
+		if ((si == s) || (si[-1] != '0'))
+		{
+			lgdebug(+D_SITOF, "\"%s\": No decimal digits found\n", s);
+			return false;
+		}
+		*r = 0.0f;
+		//printf("Converted \"%s\" to: 0\n", s);
+		return true;
+	}
 
-#if defined(HAVE_LOCALE_T) && !defined(__sun__)
-	double val = strtod_l(s, &err, get_C_LC_NUMERIC());
-#else
-	/* dictionary_setup_locale() invokes setlocale(LC_NUMERIC, "C") */
-	double val = strtod(s, &err);
-#endif /* HAVE_LOCALE_T */
+	float total = 0.0f;
+	do
+	{
+		if (*si == '.')
+		{
+			si++;
+			if (*si == '\0') break;
+		}
+		unsigned int d = (unsigned int)(*si - '0');
 
-	if ('\0' != *err) return false; /* *r unaffected */
+		if (d > 9)
+		{
+			lgdebug(+D_SITOF, "\"%s\": Invalid digit \"%c\"\n", s, *si);
+			return false;
+		}
+		if ((int)(decpoint - si) >= -max_frac_digits)
+			total += fpconv[pos][d];
+		pos++;
+	}
+	while (*++si != '\0');
 
-	*r = (float)val;
+	if (minus)
+		*r = -total;
+	else
+		*r = total;
+	//printf("Converted \"%s\" to: %.4f\n", s, *r);
 	return true;
 }
+#undef D_SITOF
 
 /* ============================================================= */
 /* Alternatives utilities */

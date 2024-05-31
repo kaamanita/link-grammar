@@ -52,7 +52,7 @@ link_public_api(const char *)
 link_public_api(const char *)
 	linkgrammar_get_dict_locale(Dictionary);
 
-link_public_api(double)
+link_public_api(float)
 	linkgrammar_get_dict_max_disjunct_cost(Dictionary);
 
 #define LG_PANIC_DISJUNCT_COST "panic-max-disjunct-cost"
@@ -101,6 +101,8 @@ link_public_api(int)
 link_public_api(bool)
      lg_error_flush(void);
 
+link_public_api(extern void) (*lg_library_failure_hook)(void);
+
 /**********************************************************************
  *
  * Functions to manipulate Dictionaries
@@ -116,6 +118,9 @@ link_public_api(const char *)
 
 link_public_api(void)
      dictionary_delete(Dictionary);
+
+link_public_api(void)
+     dictionary_clear_cache(Dictionary);
 
 link_public_api(void)
      dictionary_set_data_dir(const char * path);
@@ -158,8 +163,8 @@ link_public_api(void)
 link_public_api(int)
      parse_options_get_linkage_limit(Parse_Options opts);
 link_public_api(void)
-     parse_options_set_disjunct_cost(Parse_Options opts, double disjunct_cost);
-link_public_api(double)
+     parse_options_set_disjunct_cost(Parse_Options opts, float disjunct_cost);
+link_public_api(float)
      parse_options_get_disjunct_cost(Parse_Options opts);
 link_public_api(void)
      parse_options_set_min_null_count(Parse_Options opts, int null_count);
@@ -277,7 +282,7 @@ link_public_api(int)
      sentence_num_linkages_post_processed(Sentence sent);
 link_public_api(int)
      sentence_num_violations(Sentence sent, LinkageIdx linkage_num);
-link_public_api(double)
+link_public_api(float)
      sentence_disjunct_cost(Sentence sent, LinkageIdx linkage_num);
 link_public_api(int)
      sentence_link_cost(Sentence sent, LinkageIdx linkage_num);
@@ -302,8 +307,8 @@ link_public_api(Linkage)
      linkage_create(LinkageIdx linkage_num, Sentence sent, Parse_Options opts);
 link_public_api(void)
      linkage_delete(Linkage linkage);
-link_public_api(size_t)
-     linkage_get_num_words(const Linkage linkage);
+
+/* Individual links in the Linkage */
 link_public_api(size_t)
      linkage_get_num_links(const Linkage linkage);
 link_public_api(WordIdx)
@@ -322,24 +327,50 @@ link_public_api(int)
      linkage_get_link_num_domains(const Linkage linkage, LinkIdx index);
 link_public_api(const char **)
      linkage_get_link_domain_names(const Linkage linkage, LinkIdx index);
-link_public_api(const char **)
-     linkage_get_words(const Linkage linkage);
-link_public_api(const char *)
-     linkage_get_disjunct_str(const Linkage linkage, WordIdx word_num);
-link_public_api(double)
-     linkage_get_disjunct_cost(const Linkage linkage, WordIdx word_num);
+
+/* Individual words in the Linkage */
+link_public_api(size_t)
+     linkage_get_num_words(const Linkage linkage);
 link_public_api(const char *)
      linkage_get_word(const Linkage linkage, WordIdx word_num);
+link_public_api(const char **)
+     linkage_get_words(const Linkage linkage);
+link_public_api(WordIdx)
+     linkage_get_word_byte_start(const Linkage linkage, WordIdx w);
+link_public_api(WordIdx)
+     linkage_get_word_byte_end(const Linkage linkage, WordIdx w);
+link_public_api(WordIdx)
+     linkage_get_word_char_start(const Linkage linkage, WordIdx w);
+link_public_api(WordIdx)
+     linkage_get_word_char_end(const Linkage linkage, WordIdx w);
+
+/* Disjunct info */
+link_public_api(const char *)
+     linkage_get_disjunct_str(const Linkage linkage, WordIdx word_num);
+link_public_api(float)
+     linkage_get_disjunct_cost(const Linkage linkage, WordIdx word_num);
+
+/* Costs */
+link_public_api(int)
+     linkage_unused_word_cost(const Linkage linkage);
+link_public_api(float)
+     linkage_disjunct_cost(const Linkage linkage);
+link_public_api(int)
+     linkage_link_cost(const Linkage linkage);
+link_public_api(const char *)
+     linkage_get_violation_name(const Linkage linkage);
+
+/* Linkage printing utilities */
 link_public_api(char *)
      linkage_print_constituent_tree(Linkage linkage, ConstituentDisplayStyle mode);
 link_public_api(void)
      linkage_free_constituent_tree_str(char *str);
 link_public_api(char *)
-     linkage_print_diagram(const Linkage linkage, bool display_walls, size_t screen_width);
+     linkage_print_diagram(const Linkage lkg, bool display_walls, size_t screen_width);
 link_public_api(void)
      linkage_free_diagram(char * str);
 link_public_api(char *)
-     linkage_print_postscript(const Linkage linkage, bool display_walls, bool print_ps_header);
+     linkage_print_postscript(const Linkage lkg, bool display_walls, bool print_ps_header);
 link_public_api(void)
      linkage_free_postscript(char * str);
 link_public_api(char *)
@@ -354,24 +385,6 @@ link_public_api(char *)
      linkage_print_pp_msgs(Linkage linkage);
 link_public_api(void)
      linkage_free_pp_msgs(char * str);
-link_public_api(int)
-     linkage_unused_word_cost(const Linkage linkage);
-link_public_api(double)
-     linkage_disjunct_cost(const Linkage linkage);
-link_public_api(int)
-     linkage_link_cost(const Linkage linkage);
-link_public_api(const char *)
-     linkage_get_violation_name(const Linkage linkage);
-
-/* Experimental API - subject to changes. */
-link_public_api(WordIdx)
-     linkage_get_word_byte_start(const Linkage linkage, WordIdx w);
-link_public_api(WordIdx)
-     linkage_get_word_byte_end(const Linkage linkage, WordIdx w);
-link_public_api(WordIdx)
-     linkage_get_word_char_start(const Linkage linkage, WordIdx w);
-link_public_api(WordIdx)
-     linkage_get_word_char_end(const Linkage linkage, WordIdx w);
 
 /**********************************************************************
  *

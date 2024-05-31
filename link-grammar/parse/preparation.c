@@ -44,8 +44,7 @@ static int set_dist_fields(Connector * c, size_t w, int delta)
 /**
  * Initialize the word fields of the connectors,
  * eliminate those disjuncts that are so long, that they
- * would need to connect past the end of the sentence,
- * and mark the shallow connectors.
+ * would need to connect past the end of the sentence.
  */
 static void setup_connectors(Sentence sent)
 {
@@ -67,9 +66,6 @@ static void setup_connectors(Sentence sent)
 			{
 				d->next = head;
 				head = d;
-				if (NULL != d->left) d->left->shallow = true;
-				if (NULL != d->right) d->right->shallow = true;
-
 			}
 		}
 		sent->word[w].d = head;
@@ -96,13 +92,9 @@ void gword_record_in_connector(Sentence sent)
  * Turn sentence expressions into disjuncts.
  * Sentence expressions must have been built, before calling this routine.
  */
-static void build_sentence_disjuncts(Sentence sent, double cost_cutoff,
+static void build_sentence_disjuncts(Sentence sent, float cost_cutoff,
                                      Parse_Options opts)
 {
-	Disjunct * d;
-	X_node * x;
-	size_t w;
-
 	sent->Disjunct_pool = pool_new(__func__, "Disjunct",
 	                   /*num_elements*/2048, sizeof(Disjunct),
 	                   /*zero_out*/false, /*align*/false, /*exact*/false);
@@ -110,10 +102,14 @@ static void build_sentence_disjuncts(Sentence sent, double cost_cutoff,
 	                   /*num_elements*/8192, sizeof(Connector),
 	                   /*zero_out*/true, /*align*/false, /*exact*/false);
 
-	for (w = 0; w < sent->length; w++)
+#ifdef DEBUG
+	size_t num_con_alloced = pool_num_elements_issued(sent->Connector_pool);
+#endif
+
+	for (size_t w = 0; w < sent->length; w++)
 	{
-		d = NULL;
-		for (x = sent->word[w].x; x != NULL; x = x->next)
+		Disjunct * d = NULL;
+		for (X_node * x = sent->word[w].x; x != NULL; x = x->next)
 		{
 			Disjunct *dx = build_disjuncts_for_exp(sent, x->exp, x->string,
 				&x->word->gword_set_head, cost_cutoff, opts);
@@ -121,6 +117,20 @@ static void build_sentence_disjuncts(Sentence sent, double cost_cutoff,
 		}
 		sent->word[w].d = d;
 	}
+
+#ifdef DEBUG
+	unsigned int dcnt, ccnt;
+	count_disjuncts_and_connectors(sent, &dcnt, &ccnt);
+	lgdebug(+D_PREP, "%u disjuncts, %u connectors (%zu allocated)\n",
+	        dcnt, ccnt,
+	        pool_num_elements_issued(sent->Connector_pool) - num_con_alloced);
+#endif
+
+	/* Delete the memory pools created in build_disjuncts_for_exp(). */
+	pool_delete(sent->Clause_pool);
+	pool_delete(sent->Tconnector_pool);
+	sent->Clause_pool = NULL;
+	sent->Tconnector_pool = NULL;
 }
 
 
@@ -156,8 +166,10 @@ static void create_wildcard_word_disjunct_list(Sentence sent,
 	build_sentence_disjuncts(wc_word_list, opts->disjunct_cost, opts);
 
 	Word *word0 = &wc_word_list->word[0];
-	word0->d = eliminate_duplicate_disjuncts(word0->d, false);
-	word0->d = eliminate_duplicate_disjuncts(word0->d, true);
+	unsigned int Ndeleted;
+	Ndeleted = eliminate_duplicate_disjuncts(word0->d, false);
+	Ndeleted += eliminate_duplicate_disjuncts(word0->d, true);
+	print_time(opts, "Eliminated duplicate disjuncts (%u deleted)", Ndeleted);
 
 	wc_word_list->min_len_encoding = 2; /* Don't share/encode. */
 	Tracon_sharing *t = pack_sentence_for_pruning(wc_word_list);
@@ -187,6 +199,9 @@ void prepare_to_parse(Sentence sent, Parse_Options opts)
 {
 	size_t i;
 
+	if (IS_GENERATION(sent->dict))
+		create_wildcard_word_disjunct_list(sent, opts);
+
 	build_sentence_disjuncts(sent, opts->disjunct_cost, opts);
 	if (verbosity_level(D_PREP))
 	{
@@ -195,26 +210,27 @@ void prepare_to_parse(Sentence sent, Parse_Options opts)
 	}
 	print_time(opts, "Built disjuncts");
 
-	bool wildcard_word_found = false;
+	unsigned int Ndeleted = 0;
 	for (i=0; i<sent->length; i++)
 	{
-		sent->word[i].d = eliminate_duplicate_disjuncts(sent->word[i].d, false);
+		Ndeleted += eliminate_duplicate_disjuncts(sent->word[i].d, false);
 		if (IS_GENERATION(sent->dict))
 		{
 			if ((sent->word[i].d != NULL) && (sent->word[i].d->is_category != 0))
 			{
 				/* Also with different word_string. */
-				sent->word[i].d = eliminate_duplicate_disjuncts(sent->word[i].d, true);
+				Ndeleted += eliminate_duplicate_disjuncts(sent->word[i].d, true);
 
-				int n = 0;
+				/* XXX This ordinal numbering is just plain wrong.
+				 * Most of the disjuncts have already been pruned away,
+				 * and what is left here can no longer match the ordinal
+				 * numbering in the wild-card.  XXX FIXME, although the fix
+				 * is not obvious. FWIW, this is not used anywhere, except
+				 * to report unused disjuncts if the -u flag is specified.
+				 */
+				int nord = 0;
 				for (Disjunct *d = sent->word[i].d; d != NULL; d = d->next)
-					d->ordinal = n++;
-
-				if (!wildcard_word_found)
-				{
-					wildcard_word_found = true;
-					create_wildcard_word_disjunct_list(sent, opts);
-				}
+					d->ordinal = nord++;
 			}
 			else
 			{
@@ -235,7 +251,7 @@ void prepare_to_parse(Sentence sent, Parse_Options opts)
 			return;
 #endif
 	}
-	print_time(opts, "Eliminated duplicate disjuncts");
+	print_time(opts, "Eliminated duplicate disjuncts (%u deleted)", Ndeleted);
 
 	if (verbosity_level(D_PREP))
 	{

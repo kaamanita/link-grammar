@@ -18,7 +18,7 @@
 
 typedef struct extractor_s extractor_t;
 
-extractor_t* extractor_new(int nwords, unsigned int rand_state, bool generation);
+extractor_t* extractor_new(Sentence);
 void free_extractor(extractor_t*);
 
 bool build_parse_set(extractor_t*, Sentence,
@@ -28,5 +28,11 @@ bool build_parse_set(extractor_t*, Sentence,
 void extract_links(extractor_t*, Linkage);
 
 void mark_used_disjuncts(extractor_t *, bool *);
+
+// Uncomment to enable graphviz display of parse choice
+// #define PC_DISPLAY
+#ifdef PC_DISPLAY
+void display_parse_choice(extractor_t *);
+#endif
 
 #endif /* _EXTRACT_LINKS_H */

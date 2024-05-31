@@ -62,7 +62,7 @@
 .\" First parameter, NAME, should be all caps
 .\" Second parameter, SECTION, should be 1-8, maybe w/ subsection
 .\" other parameters are allowed: see man(7), man(1)
-.TH LINK-PARSER 1 "2021-03-30" "Version 5.9.0"
+.TH LINK-GENERATOR 1 "2021-03-30" "Version 5.9.0"
 .\" Please adjust this date whenever revising the manpage.
 .\"
 .\" Some roff macros, for reference:
@@ -129,15 +129,21 @@ Print usage and exit.
 Print program version and configuration details, and exit.
 .TP
 .B \-\-usage
-Print a short synposis of the option flags.
+Print a short synopsis of the option flags.
 .TP
 .B \-l\fR language|dict_location, \fB\-\-language\fR=language|dict_location
 Specify the language to use, or the directory file-path to the
 dictionary to use.
 .TP
 .B \-s\fR length, \fB\-\-length\fR=length
-Specify the length of the sentences to generate. All generated
+If \fBlength\fR is 0, read a sentence template. It may consist of fully
+spelled-out words as well as wild-cards. The wild-card \fB\\*\fR represents any
+dictionary word. Wild-card specifications like \fIprefix\fR\fB\\*\fR and
+\fB\\*.n\fR are also recognized.
+
+Otherwise, it specifies the length of the sentences to generate. All generated
 sentences will have exactly this length.
+
 .TP
 .B \-c\fR count, \fB\-\-count\fR=count
 Specify the number of sentences to generate. If this number is less
@@ -165,6 +171,22 @@ linkages, then more than one sentence will be printed for each
 linkage. Each sentence will have a distinct random word-choice for
 that linkage.
 
+.TP
+.B \-d\fR, \fB\-\-disjuncts\fR
+Display linkage disjuncts.
+
+.TP
+.B \-\-no\-walls\fR
+Don't attach to walls in wildcard words.
+
+.TP
+.B \-r\fR, \fB\-\-random\fR
+Use unrepeatable random numbers.
+
+.TP
+.B \-u\fR, \fB\-\-unused\fR
+Display unused disjuncts.
+
 .SH SEE ALSO
 .nh
 The \%link\-parser is a command-line tool for parsing sentences. It
@@ -173,8 +195,8 @@ implementation.
 .PP
 Information on the \%link\-grammar shared-library API and the link types
 used in the parse is available at the
-.UR http://www.abisource.com/projects/link-grammar/
-AbiWord website
+.UR https://opencog.github.io/link-grammar-website/
+Link Grammar website
 .UE .
 .PP
 Peer-reviewed papers explaining Link Grammar can be found at

@@ -27,6 +27,9 @@ an eerie quiet preceded the explosion.
 he had an easy calmness about him
 
 % Missing or miscategorized verbs
+it will reenable on its own
+And she flounced out.
+And she flounces out.
 Don't overexcite him!
 Don't overextend yourself!
 This code deadlocks.
@@ -95,6 +98,12 @@ he cut class after fifth period
 he cut out when the phone rang
 he dropped out after fifth grade
 they wick the moisture through
+
+I am told that "tombstoning" can be tricky to avoid
+it happens when the placement is off
+in my past experience, tombstoning happens when the part placement is off
+the part will tombstone
+In this case, surface tension of the liquid solder will pull on one side more than the other, and the part will tombstone.
 
 we deliver!
 he really delivers, doesn't he?
@@ -379,6 +388,9 @@ we are going to arrive exactly on time
 we are going to arrive about on time
 we are going to arrive just about on time
 
+% prepositions in relative phrases
+The doctors, many of whom are surgeons, were angry
+
 % words.v.4.1 -- some predicative-adjective stuff in here
 It reduced chances that profits could equal their earlier performance
 It reduced chances that profits could affect the outcome
@@ -514,6 +526,9 @@ Do whatever the fuck pleases you.
 % NOUNS misclassified and mangled
 %
 % Miscellaneous missing nouns.
+With this commit executables will overlink with uninstalled indirect libraries.
+The result was a false postive
+The test returns false positives
 He picked up the game die.
 People use espresso to make other coffee drinks.
 Espresso is a coffee drink.
@@ -552,6 +567,9 @@ he eats shoots and leaves
 he eats, shoots and leaves
 
 In upper crustal levels, deformation causes brittle failure
+
+I fixed a build break.
+There were three build breaks last week.
 
 I got to first base
 I got to first base with her.
@@ -1321,6 +1339,13 @@ I'll go get that
 I'll come listen to you
 Come listen to him
 come walk with me
+
+% "got" as an auxilliary
+it got added as a bonus
+it got saved as a bonus
+it got handled recently
+Yep, got handled recently
+got handled
 
 % Look-at, listen-to to focus and pay attention to an action-verb
 % Similar to "go watch them play ball" except its LOOK_AT, LISTEN_TO
@@ -2609,6 +2634,10 @@ He took a gram of snort to the party.
 % Problems with "that"
 % VP that CLAUSE:
 The response was that there are several barriers that have to come down.
+the catch was that you had to go
+the big blow was that they rejected the entire idea
+An allegation was made that he did it.
+A claim was made that the average age of couples getting married for the first time was 22.4 years old with a standard deviation of σ = 2.3 years.
 
 % "The thing that VP is that CLAUSE": thing.n needs to take Ss*t+; see THb
 The only thing that has prevented a collapse in the dollar so far is that it is the currency reserve of the world.
@@ -4292,6 +4321,12 @@ I know I ought to tell her.
 % punctuation: sometimes commas are used as if they were semicolons:
 Sweat stood on his brow, fury was bright in his one good eye.
 
+% Spanish punctuation
+¿this is a question?
+¡this is an exclamation!
+
+Underbars are used for _bold text_.
+
 % Crazy UTF8 dashes
 we are dealing with androcentric—that is to say, male-dominated—concepts
 we are dealing with androcentric--that is to say, male-dominated--concepts
@@ -4994,6 +5029,8 @@ Teach me fetch.
 Teach me.
 Teach me how.
 Teach me how to do it.
+
+Go question! Go analyze! Go discover!
 
 Walk tall.
 Think quick.
@@ -6284,6 +6321,13 @@ until yesterday ...
 ... how those two should work together
 ... the 60's.
 
+... like it would rain.
+
+% Currently, this requires two sets of ellipsis to work.
+% Phantom words could fix this:
+It became clear that ... ...
+It seems as if ... ...
+
 I need to find someone who ...
 I need to find someone who...
 He is such a ...
@@ -6292,6 +6336,8 @@ I will...
 I'll ...
 I'll...
 Maybe it works now...
+
+She was thinking of ...
 
 % Conjunctions
 He said that ... and that ...
@@ -6672,6 +6718,14 @@ The remarks--made off the cuff--were wrong.
 He tried but failed to acheive his goal.
 *Therefo, I declare I love Computer Science.
 !spell=0
+
+% Test tokenization by affix regexes.
+% Sentence that should not be affected.
+The enzyme has a weight of 125,000 to 130,000
+The train arrives at 13:42
+% Sentences that use punctuation without a trailing whitespace.
+We used the same colors (red,blue,yellow).
+The price of this item:$100
 
 % The very long sentences that take forever to  parse are now in the
 % file 4.0.fix-long.batch

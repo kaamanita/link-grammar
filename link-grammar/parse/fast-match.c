@@ -2,6 +2,7 @@
 /* Copyright (c) 2004                                                     */
 /* Daniel Sleator, David Temperley, and John Lafferty                     */
 /* Copyright (c) 2014 Linas Vepstas                                       */
+/* Copyright (c) 2015-2022 Amir Plivatsky                                 */
 /* All rights reserved                                                    */
 /*                                                                        */
 /* Use of the link grammar parsing system is subject to the terms of the  */
@@ -42,6 +43,8 @@
  * by unwinding this stack.
  */
 
+#define D_FAST_MATCHER 9 /* General debug level for this file. */
+
 #define MATCH_LIST_SIZE_INIT 4096 /* the initial size of the match-list stack */
 #define MATCH_LIST_SIZE_INC 2     /* match-list stack increase size factor */
 
@@ -68,7 +71,7 @@ struct sortbin_s
 /**
  * Push a match-list element into the match-list array.
  */
-static void push_match_list_element(fast_matcher_t *ctxt, Disjunct *d)
+static void push_match_list_element(fast_matcher_t *ctxt, uint16_t id, Disjunct *d)
 {
 	if (ctxt->match_list_end >= ctxt->match_list_size)
 	{
@@ -77,6 +80,9 @@ static void push_match_list_element(fast_matcher_t *ctxt, Disjunct *d)
 		                      ctxt->match_list_size * sizeof(*ctxt->match_list));
 	}
 
+#ifdef VERIFY_MATCH_LIST
+	if (d) d->match_id = id;
+#endif
 	ctxt->match_list[ctxt->match_list_end++] = d;
 }
 
@@ -88,8 +94,8 @@ void free_fast_matcher(Sentence sent, fast_matcher_t *mchxt)
 	if (NULL == mchxt) return;
 
 	free(mchxt->l_table[0]);
-	free(mchxt->match_list);
-	lgdebug(6, "Sentence length %zu, match_list_size %zu\n",
+	xfree(mchxt->match_list, mchxt->match_list_size * sizeof(*mchxt->match_list));
+	lgdebug(+6, "Sentence length %zu, match_list_size %zu\n",
 	        mchxt->size, mchxt->match_list_size);
 
 	xfree(mchxt->l_table_size, mchxt->size * sizeof(unsigned int));
@@ -392,18 +398,21 @@ static void match_stats(Connector *c1, Connector *c2)
  * clutters the source code very much, as it needs to be inserted in plenty
  * of places.)
  */
-static void print_match_list(fast_matcher_t *ctxt, int id, size_t mlb, int w,
+static void print_match_list(fast_matcher_t *ctxt, uint16_t id, size_t mlb, int w,
                              Connector *lc, int lw,
-                             Connector *rc, int rw)
+                             Connector *rc, int rw,
+                             match_list_cache *mlcl,
+                             match_list_cache *mlcr)
 {
-	if (!verbosity_level(9)) return;
+	if (!verbosity_level(D_FAST_MATCHER)) return;
 	Disjunct **m = &ctxt->match_list[mlb];
 
 	for (; NULL != *m; m++)
 	{
 		Disjunct *d = *m;
 
-		prt_error("MATCH_NODE %5d: %02d>%-9s %c %9s<%02d>%-9s %c %9s<%02d\n",
+		prt_error("MATCH_NODE %c%c %5d: %02d>%-9s %c %9s<%02d>%-9s %c %9s<%02d\n",
+		       (mlcl == NULL) ? ' ' : 'L', (mlcr == NULL) ? ' ' : 'R',
 		       id, lw , N(lc), d->match_left ? '=': ' ',
 		       N(d->left), w, N(d->right),
 		       d->match_right? '=' : ' ', N(rc), rw);
@@ -464,10 +473,10 @@ typedef struct
  * An optimization for English checks if one of the connectors belongs
  * to an original sentence word (c2 is checked first for an inline
  * optimization opportunity).
- * If a wordgraph word of the checked connector is the same
- * as of the previously checked one, use the cached result.
- * (The first wordgraph word is used for cache validity indication,
- * but there is only one most of the times anyway.)
+ * If the first wordgraph word of the checked connector is the same as
+ * of the previously checked one, use the cached result. (Using more
+ * than the first one would increase the cache hit, but there is only
+ * one most of the times so this would be an overhead.)
  */
 #define OPTIMIZE_EN
 static bool alt_connection_possible(Connector *c1, Connector *c2,
@@ -512,13 +521,15 @@ static bool alt_connection_possible(Connector *c1, Connector *c2,
  * Optionally print it (for debug).
  * Return the match list start.
  */
-static size_t terminate_match_list(fast_matcher_t *ctxt, int id,
-                             size_t ml_start, int w,
-                             Connector *lc, int lw,
-                             Connector *rc, int rw)
+static size_t terminate_match_list(fast_matcher_t *ctxt, uint16_t id,
+                                   size_t ml_start, int w,
+                                   Connector *lc, int lw,
+                                   Connector *rc, int rw,
+                                   match_list_cache *mlcl,
+                                   match_list_cache *mlcr)
 {
-	push_match_list_element(ctxt, NULL);
-	print_match_list(ctxt, id, ml_start, w, lc, lw, rc, rw);
+	push_match_list_element(ctxt, 0, NULL);
+	print_match_list(ctxt, id, ml_start, w, lc, lw, rc, rw, mlcl, mlcr);
 	return ml_start;
 }
 
@@ -548,91 +559,133 @@ static size_t terminate_match_list(fast_matcher_t *ctxt, int id,
 size_t
 form_match_list(fast_matcher_t *ctxt, int w,
                 Connector *lc, int lw,
-                Connector *rc, int rw)
+                Connector *rc, int rw,
+                match_list_cache *mlcl, match_list_cache *mlcr)
 {
 	Match_node *mx, *mr_end;
 	size_t front = get_match_list_position(ctxt);
 	Match_node *ml = NULL, *mr = NULL; /* Initialize in case of NULL lc or rc. */
+	match_list_cache *cmx;
 	match_cache mc;
 	gword_cache gc = { .same_alternative = false };
 
-	/* Get the lists of candidate matching disjuncts of word w for lc and
-	 * rc. Consider each of these lists only if the farthest_word of lc/rc
-	 * reaches at least the word w.
-	 * Note: The commented out (w <= lc->farthest_word) is checked at the
-	 * callers and is left here for documentation. */
-	if ((lc != NULL) /* && (w <= lc->farthest_word) */)
+	if (mlcl == NULL)
 	{
-		ml = *get_match_table_entry(ctxt->l_table_size[w], ctxt->l_table[w], lc, 0);
-	}
-	if ((lc != NULL) && (ml == NULL)) /* lc optimization */
-		return terminate_match_list(ctxt, -1, front, w, lc, lw, rc, rw);
-
-	if ((rc != NULL) && (w >= rc->farthest_word))
-	{
-		mr = *get_match_table_entry(ctxt->r_table_size[w], ctxt->r_table[w], rc, 1);
+		/* Get the lists of candidate matching disjuncts of word w for lc and
+		 * rc. Consider each of these lists only if the farthest_word of lc/rc
+		 * reaches at least the word w.
+		 * Note: The commented out (w <= lc->farthest_word) is checked at the
+		 * callers and is left here for documentation. */
+		if ((lc != NULL) /* && (w <= lc->farthest_word) */)
+		{
+			ml = *get_match_table_entry(ctxt->l_table_size[w], ctxt->l_table[w], lc, 0);
+		}
+		if ((lc != NULL) && (ml == NULL)) /* lc optimization */
+			return terminate_match_list(ctxt, -1, front, w, lc, lw, rc, rw, mlcl, mlcr);
 	}
 
-	if ((ml == NULL) && (mr == NULL))
-		return terminate_match_list(ctxt, -2, front, w, lc, lw, rc, rw);
+	if (mlcr == NULL)
+	{
+		if ((rc != NULL) && (w >= rc->farthest_word))
+		{
+			mr = *get_match_table_entry(ctxt->r_table_size[w], ctxt->r_table[w], rc, 1);
+		}
+		if ((ml == NULL) && (mlcl == NULL) && (mr == NULL))
+			return terminate_match_list(ctxt, -2, front, w, lc, lw, rc, rw, mlcl, mlcr);
+	}
 
 #ifdef VERIFY_MATCH_LIST
-	static int id = 0;
-	int lid = ++id; /* A local copy, for multi-threading support. */
+	static _Atomic(uint16_t) id = 0;
+	const uint16_t lid = ++id; /* A stable local copy, for multi-threading support. */
 #else
-	const int lid = 0;
+	const uint16_t lid = 0;
 #endif
 
-	for (mx = mr; mx != NULL; mx = mx->next)
+	lgdebug(+D_FAST_MATCHER, "MATCH_LIST %c%c %5d mlb %zu\n",
+	        (mlcl == NULL) ? ' ' : 'L', (mlcr == NULL) ? ' ' : 'R', lid, front);
+
+	if (mlcr == NULL)
 	{
-		if (mx->d->right->nearest_word > rw) break;
-		mx->d->match_left = false;
+		for (mx = mr; mx != NULL; mx = mx->next)
+		{
+			if (mx->d->right->nearest_word > rw) break;
+			mx->d->match_left = false;
+		}
+		mr_end = mx;
 	}
-	mr_end = mx;
+	else
+	{
+		for (cmx = mlcr; cmx->d != NULL; cmx++)
+		{
+			cmx->d->match_left = false;
+		}
+		mr_end = NULL; /* Prevent a gcc "may be uninitialized" warning */
+	}
 
 	/* Construct the list of things that could match the left. */
-	mc.desc = NULL;
-	gc.gword = NULL;
-	for (mx = ml; mx != NULL; mx = mx->next)
+	if (mlcl == NULL)
 	{
-		if (mx->d->left->nearest_word < lw) break;
-		if (lw < mx->d->left->farthest_word) continue;
+		mc.desc = NULL;
+		gc.gword = NULL;
 
-		mx->d->match_left = do_match_with_cache(mx->d->left, lc, &mc) &&
-		                    alt_connection_possible(mx->d->left, lc, &gc);
-		if (!mx->d->match_left) continue;
-		mx->d->match_right = false;
+		for (mx = ml; mx != NULL; mx = mx->next)
+		{
+			if (mx->d->left->nearest_word < lw) break;
+			if (lw < mx->d->left->farthest_word) continue;
 
-#ifdef VERIFY_MATCH_LIST
-		mx->d->match_id = lid;
-#endif
-		push_match_list_element(ctxt, mx->d);
+			mx->d->match_left = do_match_with_cache(mx->d->left, lc, &mc) &&
+			                    alt_connection_possible(mx->d->left, lc, &gc);
+			if (!mx->d->match_left) continue;
+			mx->d->match_right = false;
+
+			push_match_list_element(ctxt, lid, mx->d);
+		}
+
+		if ((lc != NULL) && is_no_match_list(ctxt, front)) /* lc optimization */
+			return terminate_match_list(ctxt, -3, front, w, lc, lw, rc, rw, mlcl, mlcr);
 	}
-
-	if ((lc != NULL) && is_no_match_list(ctxt, front)) /* lc optimization */
-		return terminate_match_list(ctxt, -3, front, w, lc, lw, rc, rw);
+	else
+	{
+		for (cmx = mlcl; cmx->d != NULL; cmx++)
+		{
+			cmx->d->match_left = true;
+			cmx->d->match_right = false;
+			push_match_list_element(ctxt, lid, cmx->d);
+		}
+	}
 
 	/* Append the list of things that could match the right.
 	 * Note that it is important to set here match_right correctly even
 	 * if we are going to skip this element here because its match_left
 	 * is true, since then it means it is already included in the match
 	 * list. */
-	mc.desc = NULL;
-	gc.gword = NULL;
-	for (mx = mr; mx != mr_end; mx = mx->next)
+	if (mlcr == NULL)
 	{
-		if (rw > mx->d->right->farthest_word) continue;
+		mc.desc = NULL;
+		gc.gword = NULL;
+		for (mx = mr; mx != mr_end; mx = mx->next)
+		{
+			if (rw > mx->d->right->farthest_word) continue;
 
-		if ((lc != NULL) && !mx->d->match_left) continue; /* lc optimization */
-		mx->d->match_right = do_match_with_cache(mx->d->right, rc, &mc) &&
-			                  alt_connection_possible(mx->d->right, rc, &gc);
-		if (!mx->d->match_right || mx->d->match_left) continue;
+			if ((lc != NULL) && !mx->d->match_left) continue; /* lc optimization */
+			mx->d->match_right = do_match_with_cache(mx->d->right, rc, &mc) &&
+			                     alt_connection_possible(mx->d->right, rc, &gc);
+			if (!mx->d->match_right || mx->d->match_left) continue;
 
-#ifdef VERIFY_MATCH_LIST
-		mx->d->match_id = lid;
-#endif
-		push_match_list_element(ctxt, mx->d);
+			push_match_list_element(ctxt, lid, mx->d);
+		}
+	}
+	else
+	{
+		for (cmx = mlcr; cmx->d != NULL; cmx++)
+		{
+			if ((lc != NULL) && !cmx->d->match_left) continue; /* lc optimization*/
+			cmx->d->match_right = true;
+			cmx->d->rcount_index = (uint32_t)(cmx - mlcr);
+			if (cmx->d->match_left) continue;
+			push_match_list_element(ctxt, lid, cmx->d);
+		}
 	}
 
-	return terminate_match_list(ctxt, lid, front, w, lc, lw, rc, rw);
+	return terminate_match_list(ctxt, lid, front, w, lc, lw, rc, rw, mlcl, mlcr);
 }

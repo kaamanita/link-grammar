@@ -186,7 +186,7 @@ static void print_cost_table(Dictionary dict, Dialect *di, dialect_info *dinfo)
 		return;
 	}
 
-	prt_error("Dialect cost table (%u components%s):\n\\",
+	prt_error("Dialect cost table (%u component%s):\n\\",
 	          dt->num, dt->num == 1 ? "" : "s");
 	prt_error("%-15s %s\n", "component", "cost");
 
@@ -207,7 +207,7 @@ void free_cost_table(Parse_Options opts)
 static bool dialect_conf_exists(dialect_info *dinfo)
 {
 	for (const char *p = dinfo->conf; *p != '\0'; p++)
-		if (!lg_isspace(*p)) return true;
+		if (!lg_isspace((unsigned char)*p)) return true;
 	return false;
 }
 

@@ -23,13 +23,13 @@
  */
 struct Linkage_info_struct
 {
+	const char *pp_violation_msg;
+
 	int index;            /* Index into the parse_set */
+	float disjunct_cost;
 	short N_violations;
 	short unused_word_cost;
 	short link_cost;
-
-	double disjunct_cost;
-	const char *pp_violation_msg;
 };
 
 /**
@@ -51,12 +51,11 @@ struct Linkage_info_struct
 struct Linkage_s
 {
 	WordIdx         num_words;    /* Number of (tokenized) words */
-	bool            is_sent_long; /* num_words >= twopass_length */
 	const char *  * word;         /* Array of word spellings */
 
-	size_t          num_links;    /* Number of links in array */
 	Link *          link_array;   /* Array of links */
-	size_t          lasz;         /* Alloc'ed length of link_array */
+	uint32_t        num_links;    /* Number of links in array */
+	uint32_t        lasz;         /* Alloc'ed length of link_array */
 
 	Disjunct **     chosen_disjuncts; /* Disjuncts used, one per word */
 	size_t          cdsz;         /* Alloc'ed length of chosen_disjuncts */
@@ -66,6 +65,9 @@ struct Linkage_s
 	Gword **wg_path_display;      /* Wordgraph path after morpheme combining */
 
 	Linkage_info    lifo;         /* Parse_set index and cost information */
+	bool            is_sent_long; /* num_words >= twopass_length */
+
+	bool            dupe;         /* Duplicate marker */
 	PP_domains *    pp_domains;   /* PP domain info, one for each link */
 
 	Sentence        sent;         /* Used for common linkage data */
@@ -73,8 +75,8 @@ struct Linkage_s
 
 struct Link_s
 {
-	size_t lw;              /* Offset into Linkage->word NOT Sentence->word */
-	size_t rw;              /* Offset into Linkage->word NOT Sentence->word */
+	uint16_t lw;            /* Offset into Linkage->word NOT Sentence->word */
+	uint16_t rw;            /* Offset into Linkage->word NOT Sentence->word */
 	Connector * lc;
 	Connector * rc;
 	const char * link_name; /* Spelling of full link name */
@@ -82,9 +84,9 @@ struct Link_s
 
 void compute_generated_words(Sentence, Linkage);
 void partial_init_linkage(Sentence, Linkage, unsigned int N_words);
-void check_link_size(Linkage);
 void remove_empty_words(Linkage);
 void free_linkage(Linkage);
+void linkage_array_free(Linkage);
 void free_linkages(Sentence);
 
 #endif /* _LINKAGE_H */

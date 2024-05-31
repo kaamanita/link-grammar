@@ -53,7 +53,7 @@
 
 #include "parser-utilities.h"
 #include "command-line.h"
-#include "lg_readline.h"
+#include "lg_readline.h"                // find_history_file
 
 #define DISPLAY_MAX 1024
 
@@ -61,10 +61,28 @@ static int batch_errors = 0;
 static int verbosity = 0;
 static char * debug = (char *)"";
 static char * test = (char *)"";
-static bool isatty_stdin, isatty_stdout;
-#ifdef _WIN32
-static bool running_under_cygwin = false;
-#endif /* _WIN32 */
+static bool isatty_io; /* Both input and output are tty. */
+
+static const char prompt[] = "linkparser> ";
+static const char *use_prompt(int verbosity_level)
+{
+	return (0 == verbosity_level)? "" : prompt;
+}
+
+/**
+ * Set link-parser's default parse options.
+ */
+static void set_default_parse_options(Parse_Options opts)
+{
+	parse_options_set_max_parse_time(opts, 30);
+	parse_options_set_linkage_limit(opts, 1000);
+	parse_options_set_min_null_count(opts, 0);
+	parse_options_set_max_null_count(opts, 0);
+	parse_options_set_short_length(opts, 16);
+	parse_options_set_islands_ok(opts, false);
+	parse_options_set_display_morphology(opts, false);
+	parse_options_set_spell_guess(opts, 7);
+}
 
 typedef enum
 {
@@ -73,30 +91,8 @@ typedef enum
 	NO_LABEL = ' '
 } Label;
 
-static char * get_terminal_line(char *input_string, FILE *in, FILE *out)
-{
-	static char *pline;
-	const char *prompt = (0 == verbosity)? "" : "linkparser> ";
-
-#ifdef HAVE_EDITLINE
-	pline = lg_readline(prompt);
-#else
-	fprintf(out, "%s", prompt);
-	fflush(out);
-#ifdef _WIN32
-	if (!running_under_cygwin)
-		pline = get_console_line();
-	else
-		pline = fgets(input_string, MAX_INPUT_LINE, in);
-#else
-	pline = fgets(input_string, MAX_INPUT_LINE, in);
-#endif /* _WIN32 */
-#endif /* HAVE_EDITLINE */
-
-	return pline;
-}
-
-static char * fget_input_string(FILE *in, FILE *out, bool check_return)
+static char *fget_input_string(const char *uprompt, FILE *in, FILE *out,
+                               bool tty, bool check_return)
 {
 	static char *pline;
 	static char input_string[MAX_INPUT_LINE];
@@ -108,27 +104,10 @@ static char * fget_input_string(FILE *in, FILE *out, bool check_return)
 		return pline;
 	}
 
-	input_string[MAX_INPUT_LINE-2] = '\0';
+	pline = input_string;
 
-	if (((in != stdin) && !check_return) || !isatty_stdin)
-	{
-		/* Get input from a file. */
-		pline = fgets(input_string, MAX_INPUT_LINE, in);
-	}
-	else
-	{
-		/* If we are here, the input is from a terminal. */
-		pline = get_terminal_line(input_string, in, out);
-	}
-
-	if (NULL == pline) return NULL;      /* EOF or error */
-
-	if (('\0' != input_string[MAX_INPUT_LINE-2]) &&
-	    ('\n' != input_string[MAX_INPUT_LINE-2]))
-	{
-		prt_error("Warning: Input line too long (>%d)\n", MAX_INPUT_LINE-1);
-		/* TODO: Ignore it and its continuation part(s). */
-	}
+	if (get_line(uprompt, &pline, MAX_INPUT_LINE, in, out, tty) != 1)
+		return NULL;
 
 	if (check_return)
 	{
@@ -379,11 +358,13 @@ static const char *process_some_linkages(FILE *in, Sentence sent,
 		{
 			if (!auto_next_linkage)
 			{
-				if ((verbosity > 0) && (!copts->batch_mode) && isatty_stdin && isatty_stdout)
+				if ((verbosity > 0) && (!copts->batch_mode) && isatty_io)
 				{
 					fprintf(stdout, "Press RETURN for the next linkage.\n");
+					fflush(stdout);
 				}
-				char *rc = fget_input_string(stdin, stdout, /*check_return*/true);
+				char *rc = fget_input_string(use_prompt(verbosity),  stdin, stdout,
+				                             isatty_io, /*check_return*/true);
 				if ((NULL == rc) || (*rc != '\n')) return rc;
 			}
 		}
@@ -402,7 +383,7 @@ static int there_was_an_error(Label label, Sentence sent, Parse_Options opts)
 			batch_errors++;
 			return UNGRAMMATICAL;
 		}
-		if ((sentence_disjunct_cost(sent, 0) == 0.0) &&
+		if ((sentence_disjunct_cost(sent, 0) == 0.0F) &&
 			(label == PARSE_WITH_DISJUNCT_COST_GT_0)) {
 			batch_errors++;
 			return PARSE_WITH_DISJUNCT_COST_GT_0;
@@ -516,6 +497,43 @@ static const char *fbasename(const char *fpath)
 	return progf + 1;
 }
 
+/**
+ * Return a dictionary handle for \p languege. Return NULL on failure.
+ * silence library verbose output if needed.
+ */
+static Dictionary dictionary_setup(const char *language, bool quiet,
+                                   Parse_Options opts)
+{
+	Dictionary dict;
+	int save_verbosity = parse_options_get_verbosity(opts);
+
+	if (quiet && (save_verbosity == 1))
+		parse_options_set_verbosity(opts, 0);
+
+	if (language && *language)
+	{
+		dict = dictionary_create_lang(language);
+		if (dict == NULL)
+		{
+			prt_error("Fatal error: Unable to open dictionary.\n");
+			return NULL;
+		}
+	}
+	else
+	{
+		dict = dictionary_create_default_lang();
+		if (dict == NULL)
+		{
+			prt_error("Fatal error: Unable to open default dictionary.\n");
+			return NULL;
+		}
+	}
+
+	parse_options_set_verbosity(opts, save_verbosity);
+
+	return dict;
+}
+
 static void print_usage(FILE *out, char *argv0, Command_Options *copts, int exit_value)
 {
 
@@ -541,31 +559,9 @@ int main(int argc, char * argv[])
 	Parse_Options   opts;
 	bool batch_in_progress = false;
 
-	isatty_stdin = isatty(fileno(stdin));
-	isatty_stdout = isatty(fileno(stdout));
+	isatty_io = isatty(fileno(stdin)) && isatty(fileno(stdout));
 
-#ifdef _WIN32
-	/* If compiled with MSVC/MinGW, we still support running under Cygwin.
-	 * This is done by checking running_under_cygwin to resolve
-	 * incompatibilities. */
-	const char *ostype = getenv("OSTYPE");
-	if ((NULL != ostype) && (0 == strcmp(ostype, "cygwin")))
-		running_under_cygwin = true;
-
-	/* argv encoding is in the current locale. */
-	argv = argv2utf8(argc);
-	if (NULL == argv)
-	{
-		prt_error("Fatal error: Unable to parse command line\n");
-		exit(-1);
-	}
-
-#ifdef _MSC_VER
-	_set_printf_count_output(1); /* enable %n support for display_1line_help()*/
-#endif /* _MSC_VER */
-
-	win32_set_utf8_output();
-#endif /* _WIN32 */
+	argv = ms_windows_setup(argc);
 
 	if ((argc > 1) && (argv[1][0] != '-')) {
 		/* The dictionary is the first argument if it doesn't begin with "-" */
@@ -573,6 +569,12 @@ int main(int argc, char * argv[])
 	}
 
 	copts = command_options_create();
+	if (copts == NULL || copts->popts == NULL)
+	{
+		prt_error("Fatal error: unable to create parse options\n");
+		exit(-1);
+	}
+	opts = copts->popts;
 
 	/* First set the debug options, to allow dictionary-related debug. */
 	const char * const debug_vars[] = { "verbosity", "debug", "test" };
@@ -634,39 +636,10 @@ int main(int argc, char * argv[])
 	}
 	/* End of debug options setup. */
 
-	if (language && *language)
-	{
-		dict = dictionary_create_lang(language);
-		if (dict == NULL)
-		{
-			prt_error("Fatal error: Unable to open dictionary.\n");
-			exit(-1);
-		}
-	}
-	else
-	{
-		dict = dictionary_create_default_lang();
-		if (dict == NULL)
-		{
-			prt_error("Fatal error: Unable to open default dictionary.\n");
-			exit(-1);
-		}
-	}
+	dict = dictionary_setup(language, quiet_start > 0, opts);
+	if (dict == NULL) exit(-1);
 
-	if (copts == NULL || copts->popts == NULL)
-	{
-		prt_error("Fatal error: unable to create parse options\n");
-		exit(-1);
-	}
-	opts = copts->popts;
-
-	parse_options_set_max_parse_time(opts, 30);
-	parse_options_set_linkage_limit(opts, 1000);
-	parse_options_set_min_null_count(opts, 0);
-	parse_options_set_max_null_count(opts, 0);
-	parse_options_set_short_length(opts, 16);
-	parse_options_set_islands_ok(opts, false);
-	parse_options_set_display_morphology(opts, false);
+	set_default_parse_options(opts);
 
 	/* Get the panic disjunct cost from the dictionary. */
 	const char *panic_max_cost_str =
@@ -675,7 +648,7 @@ int main(int argc, char * argv[])
 	{
 		const char *locale =  setlocale(LC_NUMERIC, "C");
 		char *err;
-		double panic_max_cost = strtod(panic_max_cost_str, &err);
+		float panic_max_cost = strtof(panic_max_cost_str, &err);
 		setlocale(LC_NUMERIC, locale);
 
 		if ('\0' == *err)
@@ -696,22 +669,10 @@ int main(int argc, char * argv[])
 	parse_options_set_disjunct_cost(opts,
 	   linkgrammar_get_dict_max_disjunct_cost(dict));
 
-	/* Remember the debug setting, because we temporary neglect it below. */
-	int verbosity_tmp = parse_options_get_verbosity(opts);
-	char *debug_tmp = strdup(parse_options_get_debug(opts));
-	char *test_tmp = strdup(parse_options_get_test(opts));
-
-	parse_options_set_verbosity(opts, 1); /* XXX assuming 1 is the default */
-	parse_options_set_debug(opts, "");
-	parse_options_set_test(opts, "");
-	save_default_opts(copts); /* Options so far are the defaults */
-
-	/* Restore the debug setting. */
-	parse_options_set_verbosity(opts, verbosity_tmp);
-	parse_options_set_debug(opts, debug_tmp);
-	parse_options_set_test(opts, test_tmp);
-	free(debug_tmp);
-	free(test_tmp);
+	/* Options so far are the defaults (save_default_opts() ensures
+	 * saving the defaults for debug, test, and verbosity, which may have
+	 * already been set by the program's arguments at this point.) */
+	save_default_opts(copts);
 
 	/* Process non-debug command line variable-setting commands (only). */
 	for (int i = 1; i < argc; i++)
@@ -743,8 +704,6 @@ int main(int argc, char * argv[])
 		}
 	}
 
-	initialize_screen_width(copts);
-
 	if ((parse_options_get_verbosity(opts)) > 0 && (quiet_start == 0))
 	{
 		prt_error("Info: Dictionary version %s, locale %s\n",
@@ -752,6 +711,13 @@ int main(int argc, char * argv[])
 			linkgrammar_get_dict_locale(dict));
 		prt_error("Info: Library version %s. Enter \"!help\" for help.\n",
 			linkgrammar_get_version());
+	}
+
+	put_opts_in_local_vars(copts); /* Update local.verbosity etc. */
+	initialize_screen_width(copts);
+	if (isatty_io)
+	{
+		find_history_filepath(dictionary_get_lang(dict), argv[0], "link-parser");
 	}
 
 	/* Main input loop */
@@ -768,7 +734,9 @@ int main(int argc, char * argv[])
 		debug = parse_options_get_debug(opts);
 		test = parse_options_get_test(opts);
 
-		input_string = fget_input_string(input_fh, stdout, /*check_return*/false);
+		input_string = fget_input_string(use_prompt(verbosity), input_fh, stdout,
+
+		                                 isatty_io, /*check_return*/false);
 
 		if (NULL == input_string)
 		{
@@ -797,6 +765,17 @@ int main(int argc, char * argv[])
 		if ('e' == command) break;    /* It was an exit command */
 		if ('c' == command) continue; /* It was another command */
 		if (-1 == command) continue;  /* It was a bad command */
+
+		/* Not sure how else to handle this!? */
+		/* We need the dict, and the x_issue_special_command code
+		 * has it, but ... doesn't pass it to the command.
+		 * So we handle it here, based on the return code. Yikes!
+		 */
+		if ('k' == command)
+		{
+			dictionary_clear_cache(dict);
+			continue;
+		}
 
 		/* We have to handle the !file command inline; it's too hairy
 		 * otherwise ... */
@@ -969,6 +948,12 @@ open_error:
 						parse_options_set_min_null_count(opts, 1);
 						parse_options_set_max_null_count(opts, sentence_length(sent));
 						num_linkages = sentence_parse(sent, opts);
+						if (num_linkages < 0)
+						{
+							sentence_delete(sent);
+							sent = NULL;
+							continue;
+						}
 					}
 				}
 			}

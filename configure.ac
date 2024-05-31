@@ -1,13 +1,15 @@
-# This file is processed by the Windows build system using confvar.bat. It
-# assumes AC_INIT is the first command, with no blank lines before it and with
-# a blank line after it. If this things are changed, change confvar.bat
-# accordingly.
+#
+# This file is processed by the Windows build system using confvar.bat.
+# It assumes AC_INIT is the first command, with no blank lines before
+# it and with a blank line after it. If this things are changed, change
+# confvar.bat accordingly.
+#
 # Don't end the URLs with a slash even if it appears in the official address,
 # because we may append a component. Also, they cannot include "!".
-AC_INIT([link-grammar],[5.10.2],[https://github.com/opencog/link-grammar],[],
-		  [https://www.abisource.com/projects/link-grammar])
+AC_INIT([link-grammar],[5.12.5],[https://github.com/opencog/link-grammar],[],
+		  [https://opencog.github.io/link-grammar-website])
 
-dnl Check whether we want to set defaults for CFLAGS and CXXFLAGS
+# Check whether we want to set defaults for CFLAGS and CXXFLAGS
 AC_MSG_CHECKING([whether configure should try to set CFLAGS/CXXFLAGS])
 AS_IF([test "x${CFLAGS+set}" = "xset" || test "x${CXXFLAGS+set}" = "xset"], [
     enable_flags_setting=no
@@ -26,18 +28,18 @@ AC_SUBST(DISCUSSION_GROUP)
 OVERVIEW=https://en.wikipedia.org/wiki/Link_grammar
 AC_SUBST(OVERVIEW)
 
-dnl Set release number
+# Set release number
 dnl This is derived from "Versioning" chapter of info libtool documentation.
 PACKAGE=link-grammar
 dnl     4a) Increment when removing or changing interfaces.
 LINK_MAJOR_VERSION=5
 dnl     4a) 5) Increment when adding interfaces.
 dnl     6) Set to zero when removing or changing interfaces.
-LINK_MINOR_VERSION=10
+LINK_MINOR_VERSION=12
 dnl     3) Increment when interfaces not changed at all,
 dnl        only bug fixes or internal changes made.
 dnl     4b) Set to zero when adding, removing or changing interfaces.
-LINK_MICRO_VERSION=2
+LINK_MICRO_VERSION=5
 dnl
 dnl     Set this too
 MAJOR_VERSION_PLUS_MINOR_VERSION=`expr $LINK_MAJOR_VERSION + $LINK_MINOR_VERSION`
@@ -55,8 +57,8 @@ AM_INIT_AUTOMAKE([foreign subdir-objects])
 
 # When maintainer-mode is enabled, downstream users sometimes trip
 # trip over automake issues. See bug #649.
-# AM_MAINTAINER_MODE([disable])
-AM_MAINTAINER_MODE([enable])
+AM_MAINTAINER_MODE([disable])
+# AM_MAINTAINER_MODE([enable])
 
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -66,79 +68,40 @@ m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])], [AC_SUBST([AM_DEFAULT_VERB
 
 dnl "Undefined AX_ macro" is checked in autogen.sh, so if this message
 dnl is changed here it should be changed there too.
-m4_pattern_forbid([^AX_(COMPILER_VENDOR|TLS|AX_CHECK_ZLIB|PKG_SWIG)\b],
+m4_pattern_forbid([^AX_(COMPILER_VENDOR|TLS|PKG_SWIG)\b],
 	[Undefined AX_ macro. Please install the "autoconf-archive" package.])
+m4_pattern_forbid([^PKG_],
+	[Undefined PKG_ macro. Please install the "pkg-config"
+                  package (may be also named "pkgconf" or "pkgconfig").])
 
 # OS checks, including Win32
 AC_CANONICAL_HOST
 dnl Checks for programs.
+# The following echoes locate the bug described in issue
+# https://github.com/opencog/link-grammar/issues/1361
+AS_ECHO_N(["Hello World! Where am I?\n"])
 AC_PROG_CC
+AS_ECHO_N(["Hah! I think I found where you are hiding!\n"])
 AC_PROG_CXX
 AX_COMPILER_VENDOR
 AC_PROG_CPP
-AM_PROG_LEX(noyywrap)
 AC_PROG_INSTALL
 AC_PROG_LN_S
 AC_PROG_MAKE_SET
 LT_INIT([win32-dll])
+
 PKG_PROG_PKG_CONFIG
+test -z "$PKG_CONFIG" &&
+	AC_MSG_ERROR([No pkg-config program found. Please install the "pkg-config"
+                  package (may be also named "pkgconf" or "pkgconfig").])
 
-# The below says "use the C compiler for all remaining tests".
-# That way, if g++ is not installed, configure won't crap out
-# (with a mystery error about not finding regex.h)
-AC_LANG([C])
+AC_PROG_LEX(noyywrap)
+(test -z "$LEX" || test "$LEX" == ':') &&
+	AC_MSG_ERROR([No flex/lex program found. Please install the "flex" or
+                 "btyacc" package.])
 
-AC_C_CONST
-
-AC_CHECK_FUNCS(strndup strtok_r sigaction)
-AC_CHECK_FUNCS(aligned_alloc posix_memalign _aligned_malloc)
-
-AC_FUNC_ALLOCA
-
-# For the Wordgraph display code
-AC_FUNC_FORK
-AC_CHECK_FUNCS(prctl)
-
-dnl CentOS-7 (at least) needs these to expose the C99 format and
-dnl limit macros in C++ source code.  They are needed for minisat.
-AC_DEFINE(__STDC_FORMAT_MACROS)
-AC_DEFINE(__STDC_LIMIT_MACROS)
-
-dnl Check for a keyword for Thread Local Storage declaration.
-dnl If found - define TLS to it.
-lg_tls=no
-AX_TLS(,:)
-test "$ac_cv_tls" != "none" && lg_tls=yes
-
-dnl Don't use thread functions with Emscripten.
-if test "$EMSCRIPTEN" != ''; then
-	AC_CHECK_DEFINE(__EMSCRIPTEN__, [emscripten=yes],
-						 [AC_MSG_ERROR([EMSCRIPTION environment variable found, but emcc is not used])])
-fi
-if test "$emscripten" != yes; then
-	AX_PTHREAD
-	if [ test -n "$ax_pthread_ok" ]; then
-		CC="${PTHREAD_CC:-CC}"
-		#CCX="${PTHREAD_CC:-CCX}"
-
-		dnl Currently, libtool uses --nostdlib when linking shared libraries,
-		dnl which causes the -pthread flag to be ignored. Try to work around that
-		dnl by explicitly specifying the pthread library unless it is already set.
-		if [ test -z "$PTHREAD_LIBS" ]; then
-			PTHREAD_LIBS=-lpthread
-		fi
-	fi
-
-	dnl Check if we can use C11 threads functions
-	AC_CHECK_HEADERS_ONCE([threads.h])
-fi
-
-dnl If the visibility __attribute__  is supported, define HAVE_VISIBILITY
-dnl and a variable CFLAG_VISIBILITY, to be added to CFLAGS/CXXFLAGS.
-LG_C_ATTRIBUTE_VISIBILITY
-
-dnl Check for specific OSs
 # ====================================================================
+# Check for specific OSs
 
 AC_MSG_CHECKING([for native Win32])
 case "$host_os" in
@@ -164,21 +127,48 @@ esac
 AC_MSG_RESULT([$cygwin])
 AM_CONDITIONAL(OS_CYGWIN, test "x$cygwin" = "xyes")
 
-AC_MSG_CHECKING([for 64-bit Apple OSX])
+AC_MSG_CHECKING([for NetBSD])
 case "$host_os" in
-  darwin*)
-    apple_osx=yes
+  *netbsd*)
+    netbsd=yes
     ;;
   *)
-    apple_osx=no
+    netbsd=no
     ;;
 esac
-AC_MSG_RESULT([$apple_osx])
-AM_CONDITIONAL(OS_X, test "x$apple_osx" = "xyes")
+AC_MSG_RESULT([$netbsd])
+AM_CONDITIONAL(OS_NETBSD, test "x$netbsd" = "xyes")
+
+AC_MSG_CHECKING([for FreeBSD])
+case "$host_os" in
+  *freebsd*)
+    freebsd=yes
+    ;;
+  *)
+    freebsd=no
+    ;;
+esac
+AC_MSG_RESULT([$freebsd])
+AM_CONDITIONAL(OS_FREEBSD, test "x$freebsd" = "xyes")
 
 HOST_OS="$host_os"
 AC_SUBST(HOST_OS)
+
 # ====================================================================
+# FreeBSD work-around. Apparently, the AX_PTHREAD autoconf macro
+# fails to include -lstdthreads in its results. See bug report
+# https://github.com/opencog/link-grammar/issues/1355
+# So we hack, and explicitly set it here.
+
+if test -n "$ax_pthread_ok" -a "x$freebsd" = "xyes"; then
+	PTHREAD_LIBS="${PTHREAD_LIBS} -lstdthreads"
+fi
+
+# ====================================================================
+# The below says "use the C compiler for all remaining tests".
+# That way, if g++ is not installed, configure won't crap out
+# (with a mystery error about not finding regex.h)
+AC_LANG([C])
 
 CXXFLAGS="${CXXFLAGS} -Wall"
 
@@ -193,8 +183,66 @@ CXXFLAGS="${CXXFLAGS} -Wall"
 # Final solution: enable std=c11, explicitly turn on BSD and SVID and
 # GNU, but do NOT turn on POSIX.
 
-CFLAGS="-std=c11 -D_BSD_SOURCE -D_SVID_SOURCE -D_GNU_SOURCE -D_ISOC11_SOURCE ${CFLAGS} ${CFLAG_VISIBILITY}"
-CXXFLAGS="-std=c++11 ${CXXFLAGS} ${CFLAG_VISIBILITY}"
+CFLAGS="-std=c11 -D_BSD_SOURCE -D_SVID_SOURCE -D_GNU_SOURCE -D_ISOC11_SOURCE ${CFLAG_VISIBILITY} ${CFLAGS}"
+CXXFLAGS="-std=c++17 ${CFLAG_VISIBILITY} ${CXXFLAGS}"
+
+# _BSD_SOURCE and _SVID_SOURCE are deprecated in glibc>=2.20. _DEFAULT_SOURCE
+# is used there instead, but _BSD_SOURCE and _SVID_SOURCE can still be
+# specified (no effect). So just add it.
+CFLAGS="-D_DEFAULT_SOURCE ${CFLAGS}"
+CXXFLAGS="-D_DEFAULT_SOURCE ${CXXFLAGS}"
+
+#
+# After setting the compiler's C standard and flags,
+# we can check for supported features.
+#
+
+# Check for keywords to support pointer argument rejection
+# in #define ARRAY_SIZE (utilities.h).
+AX_GCC_BUILTIN(__builtin_types_compatible_p)
+AC_C_TYPEOF
+
+AC_CHECK_FUNCS(strndup strtok_r sigaction malloc_trim asprintf)
+AC_CHECK_FUNCS(aligned_alloc posix_memalign _aligned_malloc)
+
+# For the Wordgraph display code.
+AC_FUNC_FORK
+AC_CHECK_FUNCS(prctl)
+
+AC_FUNC_ALLOCA
+
+# Check for a keyword for Thread Local Storage declaration.
+# If found - define TLS to it.
+lg_tls=no
+AX_TLS(,:)
+test "$ac_cv_tls" != "none" && lg_tls=yes
+
+AX_PTHREAD
+if test -n "$ax_pthread_ok"; then
+	CC="${PTHREAD_CC:-CC}"
+	dnl #CCX="${PTHREAD_CC:-CCX}"
+
+	dnl Currently, libtool uses --nostdlib when linking shared libraries,
+	dnl which causes the -pthread flag to be ignored. Try to work around that
+	dnl by explicitly specifying the pthread library unless it is already set.
+	if test -z "$PTHREAD_LIBS"; then
+		PTHREAD_LIBS=-lpthread
+	fi
+fi
+
+# Check if we can use C11 threads functions.
+AC_CHECK_HEADERS_ONCE([threads.h])
+
+# If the visibility __attribute__  is supported, define HAVE_VISIBILITY
+# and a variable CFLAG_VISIBILITY, to be added to CFLAGS/CXXFLAGS.
+LG_C_ATTRIBUTE_VISIBILITY
+
+# CentOS-7 (at least) needs these to expose the C99 format and
+# limit macros in C++ source code.  They are needed for minisat.
+AC_DEFINE(__STDC_FORMAT_MACROS)
+AC_DEFINE(__STDC_LIMIT_MACROS)
+
+# End of checks for C compiler supported features.
 
 if test x${native_win32} = xyes; then
 	# We need the shlwapi for PathRemoveFileSpecA().
@@ -211,11 +259,6 @@ if test x${native_win32} = xyes; then
 	AC_DEFINE(_WIN32_WINNT, _WIN32_WINNT_VISTA)
 fi
 
-# _BSD_SOURCE and _SVID_SOURCE are deprecated in glibc>=2.20. _DEFAULT_SOURCE
-# is used there instead, but _BSD_SOURCE and _SVID_SOURCE can still be
-# specified (no effect). So just add it.
-CFLAGS="-D_DEFAULT_SOURCE ${CFLAGS}"
-CXXFLAGS="-D_DEFAULT_SOURCE ${CXXFLAGS}"
 
 # ====================================================================
 
@@ -241,8 +284,8 @@ AC_CHECK_HEADERS([xlocale.h])
 
 # ====================================================================
 
-dnl For stdatomic.h -- missing in gcc-4.8 (Ubuntu Trusty 14.04)
-dnl Its used in the Java bindings, to avoid an ugly server-init race.
+# For stdatomic.h -- missing in gcc-4.8 (Ubuntu Trusty 14.04)
+# Its used in the Java bindings, to avoid an ugly server-init race.
 AC_MSG_CHECKING(for stdatomic.h)
 AC_CHECK_HEADER([stdatomic.h],
 	[AC_DEFINE([HAVE_STDATOMIC_H], 1, [Define to 1 if stdatomic.h exists])],
@@ -264,9 +307,8 @@ then
 	# But not the NetBSD sh, so use sed instead.
 	# CFLAGS="${CFLAGS//-O[[2-9]]} -g"
 	# CXXFLAGS="${CXXFLAGS//-O[[2-9]]} -g"
-	CFLAGS=`echo -g ${CFLAGS} |sed "s/-O[[2-9]]//g"`
-	CXXFLAGS=`echo -g ${CXXFLAGS} |sed "s/-O[[2-9]]//g"`
-	LDFLAGS="-g ${LDFLAGS}"
+	CFLAGS=`AS_ECHO(["${CFLAGS}"]) | $SED "s/-O[[2-9]]//g"`
+	CXXFLAGS=`AS_ECHO(["${CXXFLAGS}"]) | $SED "s/-O[[2-9]]//g"`
 	AC_DEFINE(DEBUG,1)
 fi
 
@@ -279,8 +321,8 @@ AC_ARG_ENABLE( mudflap,
 
 if test "x$enable_mudflap" = "xyes"
 then
-	CFLAGS="${CFLAGS} -fmudflap"
-	LDFLAGS="${LDFLAGS} -fmudflap -lmudflap"
+	CFLAGS="-fmudflap ${CFLAGS}"
+	LDFLAGS="-lmudflap ${LDFLAGS}"
 fi
 
 # ====================================================================
@@ -292,8 +334,8 @@ AC_ARG_ENABLE( profile,
 )
 if test "x$enable_profile" = "xyes"
 then
-	CFLAGS="${CFLAGS} -pg"
-	LDFLAGS="${LDFLAGS} -pg"
+	CFLAGS="-pg ${CFLAGS}"
+	LDFLAGS="-pg ${LDFLAGS}"
 fi
 
 # ====================================================================
@@ -340,29 +382,14 @@ AC_ARG_ENABLE( sat-solver,
 	   enable_sat_solver=yes
 	fi], [enable_sat_solver=no])
 
-if test "x$enable_sat_solver" = xyes; then
-	# The sat-solver code is in C++; so the link-grammar library should now
-	# directly require libstdc++ instead of indirectly depend on its
-	# availability via the minisat2 library.
-	#test x${apple_osx} = xyes || AC_CHECK_LIB(stdc++, main)
-
+AS_IF([test "x$enable_sat_solver" = xyes], [
 	# We want to check for C++; the easiest way to do this is to
 	# use c++ to compile stdio.h and bomb if it fails.
 	AC_LANG([C++])
 	AC_CHECK_HEADER([stdio.h],,
 		[AC_MSG_ERROR([C++ compiler not found; it is needed for the SAT parser])])
 
-	dnl 1. Abort and notify if no zlib.h. 2. Adapt for non-standard location.
-	AC_MSG_NOTICE([The minisat2 headers include zlib.h])
-	dnl The bundled library doesn't actually need -lz
-	AX_CHECK_ZLIB([ZLIB_CPPFLAGS="-isystem $ZLIB_HOME/include"],
-		[AC_MSG_NOTICE([No zlib library found - not building sat solver])
-		enable_sat_solver=no])
-fi
-
-# If zlib not found, then don't continue with minisat.
-if test "x$enable_sat_solver" = xyes; then
-	test "x$ZLIB_CPPFLAGS" = "x-isystem /usr/include" && ZLIB_CPPFLAGS=
+	PKG_CHECK_MODULES([ZLIB], [zlib])
 
 	CPPFLAGS_SAVE="$CPPFLAGS"
 
@@ -374,7 +401,7 @@ if test "x$enable_sat_solver" = xyes; then
 		dnl FIXME: Allow using --with-minisat2=DIR
 		dnl and/or specifying specific include/library locations.
 		minisat_headers="-isystem /usr/include/minisat"
-		CPPFLAGS="$CPPFLAGS $minisat_headers $ZLIB_CPPFLAGS"
+		CPPFLAGS="$CPPFLAGS $minisat_headers $ZLIB_CFLAGS"
 
 		AC_CHECK_LIB(minisat, main, [MINISAT_LIBS=-lminisat],
 			[ use_minisat_bundled_library=yes ]
@@ -418,8 +445,7 @@ if test "x$enable_sat_solver" = xyes; then
 	AC_LANG([C])
 	CPPFLAGS="$CPPFLAGS_SAVE"
 	AC_DEFINE(USE_SAT_SOLVER, 1, [Define for compilation])
-	AC_SUBST(ZLIB_CPPFLAGS)
-fi
+])
 
 AM_CONDITIONAL(LIBMINISAT_BUNDLED, test -n "$use_minisat_bundled_library")
 AM_CONDITIONAL(WITH_SAT_SOLVER, test "x$enable_sat_solver" = xyes)
@@ -439,8 +465,7 @@ fi
 
 AM_CONDITIONAL(WITH_ANYSPLIT, test x${enable_wordgraph_display} = xyes)
 
-dnl ====================================================================
-
+# ====================================================================
 # Couldn't use AX_LIB_SQLITE3 since it is currently (04/2021) buggy.
 
 AC_CHECK_HEADER([sqlite3.h], [SQLiteFound=yes], SQLiteFound=no)
@@ -450,7 +475,7 @@ if test "${SQLiteFound}" = yes; then
 							[SQLiteFound=nopc])
 fi
 
-dnl On macOS, the sqlite3 library exists but the .pc file may not exist.
+# On macOS, the sqlite3 library exists but the .pc file may not exist.
 if test "${SQLiteFound}" = nopc; then
 	AC_CHECK_LIB(sqlite3, sqlite3_open, [SQLITE3_LIBS=-lsqlite3])
 fi
@@ -465,6 +490,34 @@ fi
 AM_CONDITIONAL(HAVE_SQLITE3, test "${SQLiteFound}" = yes)
 AC_SUBST(SQLITE3_LIBS)
 AC_SUBST(SQLITE3_CFLAGS)
+
+# ====================================================================
+# The AtomSpace dictionary backend
+# TODO - use pkg_config for find the libs.
+# TODO - do NOT specify -lpersist-rocks -lpersist-cog  here,
+#        they need to be dynamically loaded instead (for proper
+#        initialization of the shared library ctors these contain).
+#        Alternately, if they are found, then wrap them with
+#        "-Wl,--no-as-needed"
+
+AC_LANG_PUSH([C++])
+AC_CHECK_HEADER([opencog/atomspace/AtomSpace.h], [AtomSpaceFound=yes], AtomSpaceFound=no)
+AC_LANG_POP()
+
+AC_LANG_PUSH([C++])
+AC_CHECK_HEADER([opencog/nlp/types/atom_types.h], [NLPTypesFound=yes], NLPTypesFound=no)
+AC_LANG_POP()
+
+AM_CONDITIONAL(HAVE_ATOMSPACE, test x${AtomSpaceFound} = xyes)
+AM_CONDITIONAL(HAVE_NLPTYPES, test x${NLPTypesFound} = xyes)
+
+HaveAtomese=no
+if test x"${AtomSpaceFound}" = xyes && test x"${NLPTypesFound}" = xyes; then
+	HaveAtomese=yes
+	AC_DEFINE(HAVE_ATOMESE, 1, [Define for compilation])
+	ATOMSPACE_LIBS="-latom_types -lnlp-types -lstorage-types -lsexpr -lpersist-flow -Wl,--no-as-needed -lpersist-rocks -lpersist-monospace -lpersist-cog -lpersist-cog-simple -lpersist-file -Wl,--as-needed -lpersist -latomspace -L/usr/local/lib/opencog/"
+fi
+AC_SUBST(ATOMSPACE_LIBS)
 
 # ====================================================================
 # Set Default Spell Checker settings
@@ -500,9 +553,10 @@ case "$host_os$host_cpu" in
 		default_hunspell_dictdir=/usr/share/myspell/dicts
 		;;
 esac
-AC_ARG_WITH([hunspell-dictdir], [AS_HELP_STRING([--with-hunspell-dictdir=DIR],
-	[Use DIR to find HunSpell files (default=$default_hunspell_dictdir])],
-	[], with_hunspell_dictdir=)
+
+AC_ARG_WITH([hunspell-dictdir], AS_HELP_STRING([--with-hunspell-dictdir=DIR],
+       [Use DIR to find HunSpell files (the default is system dependent)]),
+       [], [with_hunspell_dictdir=$default_hunspell_dictdir])
 
 # ====================================================================
 
@@ -526,10 +580,7 @@ if test x"$do_hunspell" = xyes; then
 		AC_SUBST(HUNSPELL_CFLAGS)
 
 		# Now, look for the dictionaries.
-		HunSpellDictDir=$default_hunspell_dictdir
-		if test -n "$with_hunspell_dictdir"; then
-			HunSpellDictDir=$with_hunspell_dictdir
-		fi
+		HunSpellDictDir=$with_hunspell_dictdir
 
 		if test "$native_win32" = yes; then
 			# Convert to native format with forward slashes
@@ -546,7 +597,12 @@ if test x"$do_hunspell" = xyes; then
 		fi
 
 		if ! test -d "$HunSpellDictDir" ; then
-			AC_MSG_WARN([HunSpell dictionary directory "$HunSpellDictDir" not found.])
+			if test "$withval" = yes; then
+				AC_MSG_WARN([Default HunSpell directory "$HunSpellDictDir" not found. Use --with_hunspell_dictdir=DIR to change it.])
+			else
+				AC_MSG_WARN([HunSpell directory "$HunSpellDictDir" not found.])
+			fi
+
 			HunSpellDictDir_status=' (not found)'
 		fi
 		AC_DEFINE_UNQUOTED(HUNSPELL_DICT_DIR, "$HunSpellDictDir", [Defining the  dictionary path])
@@ -616,33 +672,45 @@ fi
 dnl AC_CHECK_HEADERS defines HAVE_FILENAME_H if found.
 
 AC_ARG_WITH([regexlib],
-	[AS_HELP_STRING([--with-regexlib=pcre2|tre|regex|c|c++],
-	[Use the specified regex library (default=first found)])],
-	[], with_regexlib=)
+	        [AS_HELP_STRING([--with-regexlib=pcre2|tre|regex|c|c++],
+	                        [use the specified regex library (pcre2 is the
+	                         default unless --disable-pcre2 is specified).
+	                         The use of PCRE2 is strongly recommended.])],
+	                         [],
+	                         [with_regexlib=pcre2])
+
+AC_ARG_ENABLE(pcre2,
+	          [AS_HELP_STRING([--disable-pcre2],
+	                          [disable the use of the PCRE2 regex library
+	                           (default is enabled)])],
+	                           [test "$with_regexlib" = pcre2 && with_regexlib=],
+	                           [check_pcre2=1])
+
+pcre2_message='PCRE2 is strongly recommended. If you wish to compile without this, then say "configure --disable-pcre2"'
 
 lgregexlib=--with-regexlib="$with_regexlib"
 
-case $with_regexlib in
+case "$with_regexlib" in
 	'')
 		break
 		;;
 	pcre2)
-		AC_CHECK_HEADERS([pcre2.h], ,
-		                 [AC_MSG_ERROR([$lgregexlib: pcre2.h not found])],
-							  [#define PCRE2_CODE_UNIT_WIDTH 8])
-		PKG_CHECK_MODULES([REGEX], [libpcre2-8])
+		PKG_CHECK_MODULES([PCRE2], [libpcre2-8], [],
+				[AS_BOX(m4_normalize($pcre2_message))]
+				[AC_MSG_ERROR([$lgregexlib: libpcre2-8 not found])])
 		;;
 	tre)
 		AC_CHECK_HEADERS([tre/regex.h], ,
 		                 [AC_MSG_ERROR([$lgregexlib: tre/regex.h not found])])
-		PKG_CHECK_MODULES([REGEX], [tre])
+		PKG_CHECK_MODULES([TRE], [tre], [],
+								[AC_MSG_ERROR([$lgregexlib: libtre not found])])
 		;;
 	regex)
 		AC_CHECK_HEADERS([regex.h], ,[AC_MSG_ERROR([No regex.h header found])])
 		AC_CHECK_LIB([regex], [regexec], [REGEX_LIBS=-lregex],
 		             [AC_MSG_ERROR([$lgregexlib: regexec() not found])])
 		;;
-	c)
+	c|C)
 		AC_CHECK_HEADERS([regex.h], ,[AC_MSG_ERROR([No regex.h header found])])
 		AC_CHECK_FUNCS(regexec, [REGEX_LIBS=-lc],
 		               [AC_MSG_ERROR([$lgregexlib: regexec() not found])])
@@ -661,19 +729,18 @@ AM_CONDITIONAL(WITH_CXXREGEX, test -n "$regexlib_cxx")
 if test -z "$REGEX_LIBS"; then
 	AC_MSG_NOTICE([Checking for REGEX implementation:])
 fi
-dnl Find the first regex library according to this order:
-dnl libpcre2-8, libtre, libregex, libc.
+# Find the first regex library according to this order:
+# libpcre2-8, libtre, libregex, libc.
 
 if test -n "$regexlib_cxx"; then
 	AC_MSG_RESULT([... using C++ regex])
 else
-	if test -z "$REGEX_LIBS"; then
-		AC_CHECK_HEADER([pcre2.h],
-			[PKG_CHECK_MODULES([REGEX], [libpcre2-8],
-									 [AC_DEFINE([HAVE_PCRE2_H], 1)],
-									 [AC_MSG_RESULT([... missing libpcre2-8, continuing])])]
-									 , , [#define PCRE2_CODE_UNIT_WIDTH 8])
-
+	if test -z "$REGEX_LIBS" -a -n "$check_pcre2"; then
+		PKG_CHECK_MODULES([PCRE2], [libpcre2-8], [
+							AC_DEFINE([HAVE_PCRE2_H], 1)
+							REGEX_LIBS=$PCRE2_LIBS
+							REGEX_CFLAGS=$PCRE2_CFLAGS
+						], [AC_MSG_RESULT([... missing libpcre2-8, continuing])])
 	fi
 	if test -z "$REGEX_LIBS"; then
 		AC_CHECK_HEADER([tre/regex.h],
@@ -707,14 +774,6 @@ AC_SUBST(REGEX_CFLAGS)
 JNIfound=no
 
 if test "x$enable_java_bindings" = "xyes"; then
-
-	if test x${apple_osx} = xyes; then
-		# Java on Apple OSX requires a 64-bit build. However, even
-		# modern 64-bit Apple machines build 32-bit binaries by default.
-		# So force a 64-bit build if a 64-bit CPU is found.
-		CFLAGS="${CFLAGS} -arch x86_64"
-	fi
-
 	absolute_srcdir=`(cd "$srcdir"; pwd)`
 	JAVA_SRCDIR=$absolute_srcdir/bindings/java
 	if test "$native_win32" = yes; then
@@ -818,8 +877,21 @@ define([AC_MSG_ERROR],
 PythonFound=no
 if test "x$enable_python_bindings" = xyes; then
 	AM_PATH_PYTHON(PYTHON3_REQUIRED, [PythonFound=yes])
-	AX_PYTHON_DEVEL(>= 'PYTHON3_REQUIRED')
-	test -n "$lg_python_unusable" && PythonFound=no
+	AX_PYTHON_DEVEL()
+	AX_COMPARE_VERSION($PYTHON_VERSION, [ge], 'PYTHON3_REQUIRED',,
+							 [lg_python_unusable=yes])
+	if test -n "$lg_python_unusable"; then
+		dnl Use the message from AX_PYTHON_DEVEL, but with " instead of ''
+		dnl so (for debug) we can know it is from here.
+		AC_MSG_NOTICE([
+this package requires Python >= ]'PYTHON3_REQUIRED'[
+If you have it installed, but it isn't the default Python
+interpreter in your system path, please pass the PYTHON_VERSION
+variable to configure. See "configure --help" for reference.
+		])
+		PythonFound=no
+		PYTHON_VERSION= # Avoid confusion
+	fi
 	if test x$PythonFound = xyes; then
 		PythonFound=$PYTHON_VERSION
 		lg_display_PYTHON=" ($PYTHON)"
@@ -843,10 +915,8 @@ AC_SUBST(pythondir)
 # of compiler warnings, so it got discarded here. Now we generate only
 # python3 bindings, but since we don't use this definition, it is still
 # discarded here.
-# Note: The v command allows to differentiate between the two flavors of sed.
-edit_in_place=-i
-sed v </dev/null 2>/dev/null || edit_in_place="-i ''"
-sed $edit_in_place '/HAVE_PYTHON/d' confdefs.h
+# Note: "sed -i" cannot be used because it is not portable.
+$SED '/HAVE_PYTHON/d' confdefs.h >confdefs.h.bak && mv confdefs.h.bak confdefs.h
 
 popdef([AC_MSG_ERROR])
 
@@ -859,18 +929,8 @@ if test x$enable_python_bindings = xyes; then
 fi
 
 # ===================================================================
-# argp is needed for link-generate.
-
-AC_CHECK_HEADER([argp.h], [AC_SEARCH_LIBS([argp_parse], [argp],, [no_argp=1])], [no_argp=1])
-
-if test -n "$no_argp"; then
-	AC_MSG_WARN([No argp library found - "link-generator" will not get built.])
-fi
-AM_CONDITIONAL(HAVE_ARGP, test -z "$no_argp")
-
-# ===================================================================
 # swig is needed for compiling the Perl and Python bindings ...
-# ... well, actually, no, its not. 'make dist' is currently set up to
+# ... well, actually, no, it's not. 'make dist' is currently set up to
 # package all of the files generated by swig, so the user does not need
 # to actually install it.  However, swig is needed to create the package,
 # and also needed to build from a GitHub pull.
@@ -889,6 +949,14 @@ if test -n "$swig_required"; then
 else
 	SWIGfound=no
 fi
+
+# "swig -swiglib" on MinGW64 (swig 4.02) gives the following 2 lines
+# C:\msys64\mingw64\bin\Lib
+# C:/msys64/mingw64/share/swig/4.0.2
+# This breaks the Makefiles at the place SWIG_LIB is set.
+# However, since we don't use SWIG_LIB, we can solve that by clearing it.
+SWIG_LIB=
+
 AM_CONDITIONAL(HAVE_SWIG, test -n "$SWIG")
 
 # ====================================================================
@@ -937,7 +1005,6 @@ if test "x$link_cv_warn_maybe" != "x$MAYBE_WARN"; then
 	unset link_cv_warn_cflags
 fi
 AC_CACHE_CHECK([for supported warning flags], link_cv_warn_cflags, [
-	echo
 	WARN_CFLAGS=""
 
 	# Some warning options are not supported by all versions of
@@ -980,9 +1047,9 @@ LINK_CC_TRY_FLAG([-Wmaybe-uninitialized -Werror], [AC_DEFINE(HAVE_MAYBE_UNINITIA
 
 AC_FUNC_STRERROR_R
 
-dnl Save the compilation definitions for an extended version printout
+# Save the compilation definitions for an extended version printout
 AC_OUTPUT_MAKE_DEFS()
-LG_DEFS=`$ECHO "$DEFS" | $SED 's/\\\\//g'`
+LG_DEFS=`AS_ECHO(["$DEFS"]) | $SED 's/\\\\//g'`
 AC_SUBST(LG_DEFS)
 
 AC_CONFIG_FILES([
@@ -1027,16 +1094,20 @@ data/th/Makefile
 data/th/words/Makefile
 data/tr/Makefile
 data/vn/Makefile
+data/demo-atomese/Makefile
 data/demo-sql/Makefile
 man/Makefile
 ])
 AC_OUTPUT
 
 # ====================================================================
-lglibs=`${ECHO} "$LIBEDIT_LIBS $HUNSPELL_LIBS $ASPELL_LIBS $REGEX_LIBS $MINISAT_LIBS $SQLITE3_LIBS $LIBS"|${SED} 's/  */ /g'`
+lglibs=`AS_ECHO(m4_normalize(["$LIBEDIT_LIBS $HUNSPELL_LIBS $ASPELL_LIBS
+										$REGEX_LIBS $MINISAT_LIBS $SQLITE3_LIBS
+										$ATOMSPACE_LIBS
+										$LIBS"])) | ${SED} 's/  */ /g'`
 test -n "$regexlib_cxx" && REGEX_LIBS='C++'
 
-echo "
+AS_ECHO_N(["
 $PACKAGE-$VERSION  build configuration settings
 
 	prefix:                         ${prefix}
@@ -1058,6 +1129,22 @@ $PACKAGE-$VERSION  build configuration settings
 	HunSpell dictionary location:   ${HunSpellDictDir}${HunSpellDictDir_status}
 	Boolean SAT parser:             ${enable_sat_solver}${use_minisat_bundled_library}
 	SQLite-backed dictionary:       ${SQLiteFound}
-	Definitions:                    ${DEFS}
+	AtomSpace-backed dictionary:    ${HaveAtomese}
+	Definitions:                    ${LG_DEFS}
 	Libraries:                      ${lglibs}
-"
+"])
+# Show LDFLAGS if set (usually by environment of argument).
+if test -n "$LDFLAGS"; then
+	AS_ECHO(["	Loader flags:                   $LDFLAGS"])
+else
+	AS_ECHO([])
+fi
+
+if test "x${ASpellFound}" == "xyes"; then
+	AS_ECHO_N(["
+   ----------
+   Caution: Aspell version 0.60.8 and possibly others leak memory!
+   Do not enable spell-guessing in production servers!
+   ----------
+"])
+fi

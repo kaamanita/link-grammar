@@ -38,22 +38,22 @@ EXTRA_DIST =                            \
 	man/link-parser.1                    \
 	mingw/README-Cygwin.md               \
 	mingw/README-MinGW64.md              \
-	mingw/link-parser.bat                \
+	mingw/link-parser-mingw.bat          \
 	mingw/link-parser-cygwin.bat         \
+	msvc/getopt/getopt.c                 \
+	msvc/getopt/getopt.h                 \
+	msvc/getopt/README                   \
 	msvc/LGlib-features.props            \
+	msvc/LinkGenerator.vcxproj           \
 	msvc/LinkGrammarExe.vcxproj          \
-	msvc/LinkGrammarExe.vcxproj.filters  \
 	msvc/LinkGrammarJava.vcxproj         \
-	msvc/LinkGrammarJava.vcxproj.filters \
 	msvc/LinkGrammar.sln                 \
 	msvc/LinkGrammar.vcxproj             \
-	msvc/LinkGrammar.vcxproj.filters     \
 	msvc/Local.props                     \
 	msvc/confvar.bat                     \
 	msvc/MSVC-common.props               \
 	msvc/post-build.bat                  \
 	msvc/Python3.vcxproj                 \
-	msvc/Python3.vcxproj.filters         \
 	msvc/README.md                       \
 	msvc/make-check.py                   \
 	TODO

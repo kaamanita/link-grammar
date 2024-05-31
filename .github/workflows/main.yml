@@ -12,11 +12,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: install packages
-      run: sudo apt-get install autoconf-archive flex
-    - name: autoconf
-      run: ./autogen.sh
+      run: sudo apt-get install autoconf-archive flex libpcre2-dev
+    - name: autogen
+      run: ./autogen.sh --no-configure
     - name: configure
       run: ./configure
     - name: make

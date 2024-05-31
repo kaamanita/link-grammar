@@ -44,7 +44,7 @@
 #define PRx(x) fprintf(stderr, ""#x)
 #define PR(...) true
 
-/* Indicator that this connector cannot be used -- that its "obsolete".  */
+/* Indicator that this connector cannot be used -- that it's "obsolete".  */
 #define BAD_WORD (MAX_SENTENCE+1)
 
 typedef uint8_t WordIdx_m;     /* Storage representation of word index */
@@ -276,7 +276,7 @@ static void put_into_power_table(Pool_desc *mp, unsigned int size, C_list **t,
 {
 	C_list **e = get_power_table_entry(size, t, c);
 
-	assert(NULL != e, "put_into_power_table: Overflow");
+	assert(NULL != e, "Overflow");
 	assert(c->refcount > 0, "refcount %d", c->refcount);
 
 	C_list *m = pool_alloc(mp);
@@ -447,11 +447,15 @@ static void power_table_init(Sentence sent, Tracon_sharing *ts, power_table *pt)
 static void clean_table(unsigned int size, C_list **t)
 {
 	/* Table entry tombstone. */
-#define UC_NUM_TOMBSTONE ((connector_hash_t)-1)
-	static condesc_t desc_no_match =
+#define UC_NUM_TOMBSTONE ((connector_uc_hash_t)-1)
+	static condesc_more_t cm_no_match =
 	{
 		.string = "TOMBSTONE",
+	};
+	static condesc_t desc_no_match =
+	{
 		.uc_num = UC_NUM_TOMBSTONE, /* get_power_table_entry() will skip. */
+		.more = &cm_no_match
 	};
 	static Connector con_no_match =
 	{
@@ -466,7 +470,7 @@ static void clean_table(unsigned int size, C_list **t)
 
 		while (NULL != *m)
 		{
-			assert(0 <= (*m)->c->refcount, "clean_table: refcount < 0 (%d)",
+			assert(0 <= (*m)->c->refcount, "refcount < 0 (%d)",
 			       (*m)->c->refcount);
 			if (0 == (*m)->c->refcount)
 			{
@@ -1317,9 +1321,9 @@ static unsigned int cms_hash(const char *s)
 	return (i & (CMS_SIZE-1));
 }
 
-static void reset_last_criterion(multiset_table *cmt, const char *ctiterion)
+static void reset_last_criterion(multiset_table *cmt, const char *criterion)
 {
-	unsigned int h = cms_hash(ctiterion);
+	unsigned int h = cms_hash(criterion);
 
 	for (Cms *cms = cmt->cms_table[h]; cms != NULL; cms = cms->next)
 		cms->last_criterion = false;
@@ -1346,7 +1350,7 @@ static void reset_last_criterion(multiset_table *cmt, const char *ctiterion)
  */
 static bool can_form_link(const char *s, const char *t, const char *e)
 {
-	if (islower(*t)) t++; /* Skip head-dependent indicator */
+	if (islower((unsigned char)*t)) t++; /* Skip head-dependent indicator */
 	while (is_connector_name_char(*s))
 	{
 		if (*s != *t) return false;

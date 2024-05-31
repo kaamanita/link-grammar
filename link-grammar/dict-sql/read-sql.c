@@ -19,13 +19,19 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#if HAVE_THREADS_H
+#include <threads.h> // for mtx_t
+#endif
+
 #include <sqlite3.h>
 
 #include "api-structures.h"
 #include "connectors.h"
+#include "dict-common/dict-affix-impl.h"
 #include "dict-common/dict-api.h"
 #include "dict-common/dict-common.h"
-#include "dict-common/dict-impl.h"
+#include "dict-common/dict-internals.h"
+#include "dict-common/dict-locale.h"
 #include "dict-common/dict-structures.h"
 #include "dict-common/dict-utils.h"      // patch_subscript()
 #include "dict-common/file-utils.h"
@@ -57,10 +63,10 @@ static const char * make_expression(Dictionary dict,
 	/* Search for the start of a connector */
 	Exp_type etype = CONNECTOR_type;
 	const char * p = exp_str;
-	while (*p && (lg_isspace(*p))) p++;
+	while (*p && (lg_isspace((unsigned char)*p))) p++;
 	if (0 == *p) return p;
 
-	/* If it's an open paren, assume its the beginning of a new list */
+	/* If it's an open paren, assume it's the beginning of a new list */
 	if ('(' == *p)
 	{
 		p = make_expression(dict, ++p, pex);
@@ -69,38 +75,31 @@ static const char * make_expression(Dictionary dict,
 	{
 		/* Search for the end of a connector */
 		const char * con_start = p;
-		while (*p && (isalnum(*p) || '*' == *p)) p++;
+		while (*p && (isalnum((unsigned char)*p) || '*' == *p)) p++;
 
 		/* Connectors always end with a + or - */
 		assert (('+' == *p) || ('-' == *p),
 				"Missing direction character in connector string: %s", con_start);
 
 		/* Create an expression to hold the connector */
-		Exp* e = Exp_create(dict->Exp_pool);
-		e->dir = *p;
-		e->type = CONNECTOR_type;
-		e->operand_next = NULL;
-		e->cost = 0.0;
 		char * constr = NULL;
+		bool multi = false;
 		if ('@' == *con_start)
 		{
 			constr = strndupa(con_start+1, p-con_start-1);
-			e->multi = true;
+			multi = true;
 		}
 		else
-		{
 			constr = strndupa(con_start, p-con_start);
-			e->multi = false;
-		}
 
-		e->condesc = condesc_add(&dict->contable,
-		                           string_set_add(constr, dict->string_set));
+		Exp* e = make_connector_node(dict, dict->Exp_pool, constr, *p, multi);
+
 		*pex = e;
 	}
 
 	/* Is there any more? If not, return what we've got. */
 	p++;
-	while (*p && (lg_isspace(*p))) p++;
+	while (*p && (lg_isspace((unsigned char)*p))) p++;
 	if (')' == *p || 0 == *p)
 	{
 		return p;
@@ -125,14 +124,7 @@ static const char * make_expression(Dictionary dict,
 	assert(NULL != rest, "Badly formed expression %s", exp_str);
 
 	/* Join it all together. */
-	Exp* join = Exp_create(dict->Exp_pool);
-	join->type = etype;
-	join->operand_next = NULL;
-	join->cost = 0.0;
-
-	join->operand_first = *pex;
-	(*pex)->operand_next = rest;
-	rest->operand_next = NULL;
+	Exp* join = make_join_node(dict->Exp_pool, *pex, rest, etype);
 
 	*pex = join;
 
@@ -143,6 +135,10 @@ static const char * make_expression(Dictionary dict,
 /* ========================================================= */
 /* Dictionary word lookup procedures. */
 
+#if HAVE_THREADS_H
+static mtx_t global_mutex;
+#endif
+
 typedef struct
 {
 	Dictionary dict;
@@ -152,17 +148,6 @@ typedef struct
 	Exp* exp;
 	char* classname;
 } cbdata;
-
-static void db_free_llist(Dictionary dict, Dict_node *llist)
-{
-	Dict_node * dn;
-	while (llist != NULL)
-	{
-		dn = llist->right;
-		free(llist);
-		llist = dn;
-	}
-}
 
 /* callback -- set bs->exp to the expressions for a class in the dict */
 static int exp_cb(void *user_data, int argc, char **argv, char **colName)
@@ -177,7 +162,7 @@ static int exp_cb(void *user_data, int argc, char **argv, char **colName)
 	make_expression(dict, argv[0], &exp);
 	assert(NULL != exp, "Failed expression %s", argv[0]);
 
-	if (!strtodC(argv[1], &exp->cost))
+	if (!strtofC(argv[1], &exp->cost))
 	{
 		prt_error("Warning: Invalid cost \"%s\" in expression \"%s\" "
 		          "(using 1.0)\n", argv[1], argv[0]);
@@ -194,13 +179,7 @@ static int exp_cb(void *user_data, int argc, char **argv, char **colName)
 	/* If the second expression, OR-it with the existing expression. */
 	if (OR_type != bs->exp->type)
 	{
-		Exp* orn = Exp_create(dict->Exp_pool);
-		orn->type = OR_type;
-		orn->cost = 0.0;
-
-		orn->operand_first = exp;
-		exp->operand_next = bs->exp;
-		bs->exp = orn;
+		bs->exp = make_or_node(dict->Exp_pool, exp, bs->exp);
 		return 0;
 	}
 
@@ -243,6 +222,9 @@ static char * escape_quotes(const char * s)
 static void
 db_lookup_exp(Dictionary dict, const char *s, cbdata* bs)
 {
+#if HAVE_THREADS_H
+	mtx_lock(&global_mutex);
+#endif
 	sqlite3 *db = dict->db_handle;
 	dyn_str *qry;
 
@@ -263,6 +245,10 @@ db_lookup_exp(Dictionary dict, const char *s, cbdata* bs)
 
 	lgdebug(D_SQL+1, "Found expression for class %s: %s\n",
 	        s, exp_stringify(bs->exp));
+
+#if HAVE_THREADS_H
+	mtx_unlock(&global_mutex);
+#endif
 }
 
 
@@ -299,13 +285,18 @@ static int morph_cb(void *user_data, int argc, char **argv, char **colName)
 	assert(NULL != bs->exp, "Missing disjuncts for word %s %s",
 		scriword, wclass);
 
+#if HAVE_THREADS_H
+	mtx_lock(&global_mutex);
+#endif
 	/* Put each word into a Dict_node. */
-	Dict_node *dn = malloc(sizeof(Dict_node));
-	memset(dn, 0, sizeof(Dict_node));
+	Dict_node *dn = dict_node_new();
 	dn->string = string_set_add(scriword, bs->dict->string_set);
 	dn->right = bs->dn;
 	dn->exp = bs->exp;
 	bs->dn = dn;
+#if HAVE_THREADS_H
+	mtx_unlock(&global_mutex);
+#endif
 
 	return 0;
 }
@@ -423,8 +414,10 @@ static int classname_cb(void *user_data, int argc, char **argv, char **colName)
 	dict->num_categories++;
 	dict->category[dict->num_categories].num_words = 0;
 	dict->category[dict->num_categories].word = NULL;
+	char* esc = escape_quotes(argv[0]);
 	dict->category[dict->num_categories].name =
-		string_set_add(argv[0], dict->string_set);
+		string_set_add(esc, dict->string_set);
+	if (esc != argv[0]) free(esc);
 
 	char category_string[16];     /* For the tokenizer - not used here */
 	snprintf(category_string, sizeof(category_string), " %x",
@@ -456,11 +449,14 @@ static int classword_cb(void *user_data, int argc, char **argv, char **colName)
  * a wild-card appearing in the generator forces a loop over all
  * categories, so we may as well have them instantly available.
  */
-static void add_categories(Dictionary dict)
+static void db_add_categories(Dictionary dict)
 {
 	sqlite3 *db = dict->db_handle;
 	cbdata bs;
 	bs.dict = dict;
+#if HAVE_THREADS_H
+	mtx_lock(&global_mutex);
+#endif
 
 	/* How many lexical categories are there? Find out. */
 	sqlite3_exec(db, "SELECT count(DISTINCT classname) FROM Disjuncts;",
@@ -504,7 +500,7 @@ static void add_categories(Dictionary dict)
 
 		dict->category[i].num_words = bs.count;
 		dict->category[i].word =
-			malloc(bs.count * sizeof(dict->category[0].word));
+			malloc(bs.count * sizeof(*dict->category[0].word));
 
 		/* ------------------ */
 		/* For each category, get the (subscripted) words in the category */
@@ -522,6 +518,9 @@ static void add_categories(Dictionary dict)
 
 	/* Set the termination entry. */
 	dict->category[dict->num_categories + 1].num_words = 0;
+#if HAVE_THREADS_H
+	mtx_unlock(&global_mutex);
+#endif
 }
 
 /* ========================================================= */
@@ -529,9 +528,9 @@ static void add_categories(Dictionary dict)
 
 static void* db_open(const char * fullname, const void * user_data)
 {
-	int fd;
-	struct stat buf;
-	sqlite3 *db;
+#if HAVE_THREADS_H
+	mtx_init(&global_mutex, mtx_plain);
+#endif
 
 	/* Is there a file here that can be read? */
 	FILE * fh =  fopen(fullname, "r");
@@ -540,13 +539,15 @@ static void* db_open(const char * fullname, const void * user_data)
 
 	/* Get the file size, in bytes. */
 	/* SQLite has a habit of leaving zero-length DB's lying around */
-	fd = fileno(fh);
+	struct stat buf;
+	int fd = fileno(fh);
 	fstat(fd, &buf);
 	fclose(fh);
 	if (0 == buf.st_size)
 		return NULL;
 
 	/* Found a file, of non-zero length. See if that works. */
+	sqlite3 *db;
 	if (sqlite3_open(fullname, &db))
 	{
 		prt_error("Error: Can't open database %s: %s\n",
@@ -564,6 +565,21 @@ static void db_close(Dictionary dict)
 		sqlite3_close(db);
 
 	dict->db_handle = NULL;
+}
+
+static void db_start_lookup(Dictionary dict, Sentence sent)
+{
+}
+
+static void db_end_lookup(Dictionary dict, Sentence sent)
+{
+#if HAVE_THREADS_H
+	mtx_lock(&global_mutex);
+#endif
+	condesc_setup(dict);
+#if HAVE_THREADS_H
+	mtx_unlock(&global_mutex);
+#endif
 }
 
 Dictionary dictionary_create_from_db(const char *lang)
@@ -603,10 +619,17 @@ Dictionary dictionary_create_from_db(const char *lang)
 
 	dict->lookup_list = db_lookup_list;
 	dict->lookup_wild = db_lookup_wild;
-	dict->free_lookup = db_free_llist;
-	dict->lookup = db_lookup;
+	dict->free_lookup = dict_node_free_lookup;
+	dict->exists_lookup = db_lookup;
+	dict->start_lookup = db_start_lookup;
+	dict->end_lookup = db_end_lookup;
+	dict->clear_cache = dict_node_noop;
 	dict->close = db_close;
+
+	dict->dynamic_lookup = true;
 	condesc_init(dict, 1<<8);
+
+	dict->dfine.set = string_id_create();
 
 	dict->Exp_pool = pool_new(__func__, "Exp", /*num_elements*/4096,
 	                          sizeof(Exp), /*zero_out*/false,
@@ -630,7 +653,7 @@ Dictionary dictionary_create_from_db(const char *lang)
 
 	/* Initialize word categories, for text generation. */
 	if (dictionary_generation_request(dict))
-		add_categories(dict);
+		db_add_categories(dict);
 
 	return dict;
 
